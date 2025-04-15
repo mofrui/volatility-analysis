@@ -15,7 +15,7 @@ How can short-term volatility forecasts be leveraged to optimize bid-ask spread 
 
 ## Literatures
 
->{!WARNING}
+>[!WARNING]
 > Please add more literatures to this section for later literature reviews.
 
 > Yuqing Feng, Yaojie Zhang. 2024. *Forecasting Realized Volatility: The Choice of Window Size*. Journal of Forcasting (2025). https://doi.org/10.1002/for.3221
@@ -73,7 +73,7 @@ We train and evaluate the following models using the best-performing rolling win
 
 ##### Baseline: HAR-RV Model
 
->{!WARNING}
+>[!WARNING]
 > TODO
 
 ##### ARMA-GARCH Model (Various Variations)
@@ -82,12 +82,12 @@ Explore multiple ARMA(p,q)-GARCH(1,1) combinations, selecting the best based on 
 
 ##### LSTM Model (With Hyperparameter Tuning)
 
->{!WARNING}
+>[!WARNING]
 > TODO
 
 ##### XGBoost Model (With Hyperparameter Tuning)
 
->{!WARNING}
+>[!WARNING]
 > TODO
 
 #### Movel Selection and Evaluation
@@ -109,5 +109,5 @@ Classify market conditions into:
 - High volatility = widen spread
 - Low volatility = tighten spread
 
->{!WARNING}
+>[!WARNING]
 > TODO
