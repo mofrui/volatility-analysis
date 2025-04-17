@@ -71,6 +71,14 @@ This allows us to test both in-domain and out-of-domain generalization, and the 
 
 We train and evaluate the following models using the best-performing rolling window setup.
 
+Suggestion: Instead of splitting by stock (e.g. 8 train, 2 test), train and test on different time periods within the same stock.​
+ For example we could do: ​
+
+Use time_id_reference.csv to map time_ids to real time.​
+ ➤ Train on one day → Test on the next day​
+ ➤ Train on one week → Test on the following week ​
+
+
 ##### Baseline: HAR-RV Model
 
 >[!WARNING]
