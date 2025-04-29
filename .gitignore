@@ -1,2 +1,4 @@
 .conda/
 .DS_Store
+dashboard/__pycache__
+.venv
