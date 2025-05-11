@@ -1,5 +1,5 @@
 .conda/
 .DS_Store
-dashboard/__pycache__
+__pycache__
 .venv
 data
