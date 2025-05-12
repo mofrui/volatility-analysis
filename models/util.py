@@ -8,7 +8,7 @@ from typing import List
 WINDOW_SIZE = 330
 
 # Number of future time steps to forecast for each window
-FORECAST_HORIZON = 10
+FORECAST_HORIZON = 5
 
 #  Step size for moving the rolling window forward
 STEP = 5
