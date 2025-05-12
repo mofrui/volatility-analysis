@@ -1,142 +1,92 @@
-import streamlit as st
-import pandas as pd
-import numpy as np
-import os
-import random
-import matplotlib.pyplot as plt
-import joblib
+from faicons import icon_svg
+import seaborn as sns
+from shinywidgets import render_plotly
+
+from shiny import reactive, req
+from shiny.express import input, render, ui
+import model
 import statsmodels.api as sm
-from sklearn.preprocessing import StandardScaler
-import plotly.graph_objects as go
 
-# Set random seed
-np.random.seed(3888)
-random.seed(3888)
+stock_ids = {
+    9323: "9323: AAPL XNAS",
+    22675: "22675: AMZN XNAS",
+    22951: "22951: FACEBOOK XNAS",
+    22729: "22729: GOOGC XNAS",
+    48219: "48219: GS XNAS",
+    22753: "22753: JPM XNAS",
+    22771: "22771: NFLX XNAS",
+    104919: "104919: QQQ XNAS",
+    50200: "50200: SPY XNAS",
+    8382: "8382: TSLA XNAS"
+}
 
-# Paths
-folder_path = "/Users/dais/Downloads/Optiver_additional data"
-feature_path = os.path.join(folder_path, "order_book_feature.parquet")
-target_path = os.path.join(folder_path, "order_book_target.parquet")
+ui.page_opts(title="Volatility prediction dashboard", fillable=True)
 
-# Load feature/target metadata (only to list available stocks)
-feature_df = pd.read_parquet(feature_path, engine='pyarrow')
-target_df = pd.read_parquet(target_path, engine='pyarrow')
-stock_ids = feature_df['stock_id'].unique()
+with ui.sidebar(title="Model Selection"):
+    ui.input_file("model", "Select a model", accept=".pkl")
+    ui.input_select("selected_stock_id", "Choose a Stock ID you want to predict:", stock_ids, selected=9323)
 
-# Stock selector
-stock_id = st.selectbox("Choose a stock_id:", stock_ids)
 
-# =====================
-# 1. Functions
-# =====================
-def compute_orderbook_features(df):
-    df = df.copy()
-    df['mid_price'] = (df['bid_price1'] + df['ask_price1']) / 2
-    df['wap'] = (df['bid_price1'] * df['ask_size1'] + df['ask_price1'] * df['bid_size1']) / (df['ask_size1'] + df['bid_size1'])
-    df['bid_ask_spread'] = df['ask_price1'] - df['bid_price1']
-    df['spread_pct'] = df['bid_ask_spread'] / df['mid_price']
-    df['spread_variation'] = df.groupby('time_id')['spread_pct'].transform(lambda x: x.rolling(window=10, min_periods=1).std())
-    df['imbalance'] = (df['bid_size1'] - df['ask_size1']) / (df['bid_size1'] + df['ask_size1'])
-    df['depth_ratio'] = df['bid_size1'] / df['ask_size1'].replace(0, np.nan)
-    return df
+with ui.layout_column_wrap(fill=False):
+    with ui.value_box(showcase=icon_svg("chart-line")):
+        "Q-like"
 
-def evaluate(true, pred):
-    pred = np.clip(pred, 1e-8, None)
-    true = np.clip(true, 1e-8, None)
-    mse = np.mean((true - pred)**2)
-    qlike = np.mean(np.log(pred**2) + (true**2) / (pred**2))
-    return mse, qlike
+        @render.text
+        def qlike():
+            actual, predicted = prediction()
+            return model.qlike(actual, predicted)
 
-@st.cache_resource
-def load_models():
-    ols = joblib.load("research/models/ols_model.pkl")
-    wls = joblib.load("research/models/wls_model.pkl")
-    ridge = joblib.load("research/models/ridge_model.pkl")
-    ridge_scaler = joblib.load("research/models/ridge_scaler.pkl")
-    ridgecv = joblib.load("research/models/ridgecv_model.pkl")
-    ridgecv_scaler = joblib.load("research/models/ridgecv_scaler.pkl")
-    lassocv = joblib.load("research/models/lassocv_model.pkl")
-    lassocv_scaler = joblib.load("research/models/lasso_cv_scaler.pkl")
-    return ols, wls, ridge, ridge_scaler, ridgecv, ridgecv_scaler, lassocv, lassocv_scaler
+    with ui.value_box(showcase=icon_svg("xmark")):
+        "MSE"
 
-# =====================
-# 2. Main Workflow
-# =====================
-with st.spinner("Loading and processing stock data..."):
-    # Load per-stock data
-    stock_feature = feature_df[feature_df["stock_id"] == stock_id].copy()
-    stock_target = target_df[target_df["stock_id"] == stock_id].copy()
-    stock_df = pd.concat([stock_feature, stock_target], axis=0).sort_values(['time_id', 'seconds_in_bucket'])
-    stock_df = compute_orderbook_features(stock_df)
+        @render.text
+        def mse():
+            actual, predicted = prediction()
+            return model.mse(actual, predicted)
 
-    # Compute realized volatility
-    stock_df["log_return"] = stock_df.groupby("time_id")["wap"].transform(lambda x: np.log(x / x.shift(1)))
-    rv_df = stock_df.groupby("time_id")["log_return"].agg(lambda x: np.sqrt(np.sum(x**2))).reset_index()
-    rv_df = rv_df.rename(columns={"log_return": "realized_volatility"})
+    with ui.value_box(showcase=icon_svg("ruler-combined")):
+        "RMSE"
 
-    # Create lag features
-    hav_df = rv_df.copy()
-    hav_df["rv_lag_1"] = hav_df["realized_volatility"].shift(1)
-    hav_df["rv_lag_5"] = hav_df["realized_volatility"].shift(5)
-    hav_df["rv_lag_10"] = hav_df["realized_volatility"].shift(10)
-    hav_df = hav_df.dropna().reset_index(drop=True)
+        @render.text
+        def rmse():
+            actual, predicted = prediction()
+            return model.rmse(actual, predicted)
 
-    X = hav_df[["rv_lag_1", "rv_lag_5", "rv_lag_10"]]
-    y = hav_df["realized_volatility"]
+
+with ui.layout_columns():
+    with ui.card(full_screen=True):
+        ui.card_header("Volatility Forecasts")
+
+        @render.plot
+        def predict():
+            actual, predicted = prediction()
+
+            ax = sns.lineplot(x=range(len(actual)), y=actual, label="Actual", linestyle="-", color="blue")
+            sns.lineplot(x=range(len(predicted)), y=predicted, label="Predicted", linestyle="--", color="orange", ax=ax)
+
+            ax.set_title("Actual vs Predicted Volatility")
+            ax.set_xlabel("Time")
+            ax.set_ylabel("Realized Volatility")
+
+            return ax.figure
+
+
+ui.include_css("styles.css")
+
+@reactive.calc
+def prediction():
+    fileinfo = input.model()
+    req(fileinfo)
+    model_name = fileinfo[0]["name"]
+    model_path = f"Models/{model_name}"
+    selected_model = model.load_model(model_path)
+    load_data = model.load_data(input.selected_stock_id())
+
+    X = load_data[["rv_lag_1", "rv_lag_5", "rv_lag_10"]]
+    y = load_data["realized_volatility"]
     X_const = sm.add_constant(X)
 
-    # Load models
-    ols_model, wls_model, ridge_fixed_model, ridge_fixed_scaler, ridge_cv_model, ridge_cv_scaler, lasso_cv_model, lasso_cv_scaler = load_models()
+    actual = y.values
+    prediction = selected_model.predict(X_const)
 
-    # Predict
-    preds = {
-        "Actual": y.values,
-        "OLS": ols_model.predict(X_const),
-        "WLS": wls_model.predict(X_const),
-        "Ridge (fixed alpha=1)": ridge_fixed_model.predict(ridge_fixed_scaler.transform(X)),
-        "RidgeCV (best alpha)": ridge_cv_model.predict(ridge_cv_scaler.transform(X)),
-        "LassoCV (best alpha)": lasso_cv_model.predict(lasso_cv_scaler.transform(X)),
-    }
-
-    # Metrics
-    metrics = {}
-    for model_name, pred in preds.items():
-        if model_name != "Actual":
-            mse, qlike = evaluate(y, pred)
-            metrics[model_name] = {"MSE": mse, "QLIKE": qlike}
-
-# =====================
-# 3. Streamlit Interface
-# =====================
-selected_models = st.multiselect(
-    "Select models to display:",
-    list(preds.keys()),
-    default=["Actual", "OLS"]
-)
-
-fig = go.Figure()
-for model in selected_models:
-    fig.add_trace(go.Scatter(y=preds[model], mode='lines', name=model))
-fig.update_layout(
-    title="Volatility Forecasts",
-    xaxis_title="Forecast Step",
-    yaxis_title="Volatility",
-    template="plotly_white"
-)
-st.plotly_chart(fig)
-
-# Show metrics table
-table_data = []
-for model_name in selected_models:
-    if model_name != "Actual":
-        mse = metrics[model_name]["MSE"]
-        qlike = metrics[model_name]["QLIKE"]
-        table_data.append({
-            "Model": model_name,
-            "MSE": f"{mse:.8f}",
-            "QLIKE": f"{qlike:.8f}"
-        })
-
-if table_data:
-    st.subheader("Model Evaluation Metrics")
-    st.dataframe(pd.DataFrame(table_data))
+    return actual, prediction
