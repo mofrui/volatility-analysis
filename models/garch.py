@@ -12,11 +12,29 @@ import numpy as np
 import pandas as pd
 from arch import arch_model
 from sklearn.metrics import mean_squared_error
-from models import util
+import pickle
+import os
 
 from models import util
 
 warnings.filterwarnings("ignore")
+
+
+def save_garch_model(model, name="baseline", subdir="models/out/garch"):
+    """
+    Save fitted arch_model result object (ARCHModelResult) to a .pkl file.
+
+    Parameters:
+        model: Fitted ARCH model result (e.g. from arch_model().fit()).
+        name (str): Filename without extension.
+        subdir (str): Directory to save model into.
+    """
+    os.makedirs(subdir, exist_ok=True)
+    path = os.path.join(subdir, f"{name}.pkl")
+    with open(path, "wb") as f:
+        pickle.dump(model, f)
+    print(f"✅ GARCH model saved to {path}")
+
 
 def baseline(rolling_df: pd.DataFrame, full_df: pd.DataFrame, scale: int = 1000000, train_ratio: float = 0.8):
     """
@@ -32,7 +50,7 @@ def baseline(rolling_df: pd.DataFrame, full_df: pd.DataFrame, scale: int = 10000
         model_summary: Last fitted model (for inspection)
         result_df: Test set with [time_id, start_time, y_true, y_pred]
     """
-    W, H = 330, 5
+    W, H = 330, 10
     results = []
     last_model = None
 
@@ -95,6 +113,8 @@ def baseline(rolling_df: pd.DataFrame, full_df: pd.DataFrame, scale: int = 10000
     print(f"QLIKE: {qlike:.4f}")
     print(f"Directional Accuracy: {directional_acc:.4f}")
     print(f"Success Rate: {len(result_df)}/{len(test_df)}")
+
+    save_garch_model(last_model, name="baseline")
 
     return last_model, result_df
 
@@ -183,6 +203,12 @@ def baseline_grid(rolling_df: pd.DataFrame, full_df: pd.DataFrame,
     print("✅ Grid Search Complete. Best Model Summary:")
     print(best_model.summary())
     print(f"Best Model: → RMSE = {rmse:.8f}, QLIKE = {qlike:.4f}, Directional Accuracy = {directional_acc:.4f}\n")
+    print(f"garch_best_model_p{best_model.model.p}_q{best_model.model.q}")
+
+
+    name = f"garch_best_model_p{best_model.model.p}_q{best_model.model.q}"
+    save_garch_model(best_model, name=name)
+
 
     return best_model, best_result_df
 

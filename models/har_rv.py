@@ -3,8 +3,27 @@ import pandas as pd
 from sklearn.linear_model import LinearRegression
 from sklearn.metrics import mean_squared_error
 import statsmodels.api as sm
+import pickle
+import os
 
 from models import util
+
+def save_regression_model(model, name: str = "har_model", subdir: str = "models/out/harrv"):
+    """
+    Save sklearn or statsmodels regression model using pickle.
+
+    Parameters:
+        model: Trained regression model (LinearRegression or statsmodels result).
+        name (str): Filename (without extension).
+        subdir (str): Folder path to save the model in.
+    """
+    os.makedirs(subdir, exist_ok=True)
+    path = f"{subdir}/{name}.pkl"
+    with open(path, "wb") as f:
+        pickle.dump(model, f)
+    print(f"✅ Model saved to {path}")
+
+
 
 def ols(df: pd.DataFrame):
     """
@@ -59,6 +78,8 @@ def ols(df: pd.DataFrame):
     print(f"RMSE: {rmse:.8f}")
     print(f"QLIKE: {qlike:.4f}")
     print(f"Directional Accuracy: {directional_acc:.4f}")
+
+    save_regression_model(model, name="har_ols")
 
     return model, test_df
 
@@ -119,5 +140,7 @@ def wls(df: pd.DataFrame):
     print(f"RMSE: {rmse:.8f}")
     print(f"QLIKE: {qlike:.4f}")
     print(f"Directional Accuracy: {directional_acc:.4f}")
+
+    save_regression_model(model, name="har_wls")
 
     return model, test_df
