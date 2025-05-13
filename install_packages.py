@@ -23,7 +23,8 @@ versioned_packages = {
     "torch": "torch==2.1.0",
     "torchvision": "torchvision==0.16.0",
     "torchaudio": "torchaudio==2.1.0",
-    "ipython": "ipython"
+    "ipython": "ipython",
+    "tensorflow": "tensorflow==2.14.0"
 }
 
 
