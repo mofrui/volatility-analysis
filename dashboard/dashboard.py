@@ -13,6 +13,12 @@ import plotly.graph_objects as go
 np.random.seed(3888)
 random.seed(3888)
 
+stock_names = {
+    50200: "SPY XNAS",
+    104919: "QQQ XNAS",
+    22771: "NFLX XNAS"
+}
+
 # Paths
 folder_path = "/Users/dais/Downloads/Optiver_additional data"
 feature_path = os.path.join(folder_path, "order_book_feature.parquet")
@@ -21,10 +27,18 @@ target_path = os.path.join(folder_path, "order_book_target.parquet")
 # Load feature/target metadata (only to list available stocks)
 feature_df = pd.read_parquet(feature_path, engine='pyarrow')
 target_df = pd.read_parquet(target_path, engine='pyarrow')
-stock_ids = feature_df['stock_id'].unique()
+
+# include the stock we trained on and the most correlated and least correlated stock with the stock we used for training 
+stock_ids = [50200, 104919,22771]
 
 # Stock selector
-stock_id = st.selectbox("Choose a stock_id:", stock_ids)
+# Use the name alongside the ID in the selectbox
+options = [f"{sid} – {stock_names[sid]}" for sid in stock_ids]
+selected_label = st.selectbox("Choose a stock:", options)
+
+# Extract the numeric stock_id for internal use
+stock_id = int(selected_label.split(" – ")[0])
+
 
 # =====================
 # 1. Functions
@@ -51,18 +65,12 @@ def evaluate(true, pred):
 def load_models():
     ols = joblib.load("research/models/ols_model.pkl")
     wls = joblib.load("research/models/wls_model.pkl")
-    ridge = joblib.load("research/models/ridge_model.pkl")
-    ridge_scaler = joblib.load("research/models/ridge_scaler.pkl")
-    ridgecv = joblib.load("research/models/ridgecv_model.pkl")
-    ridgecv_scaler = joblib.load("research/models/ridgecv_scaler.pkl")
-    lassocv = joblib.load("research/models/lassocv_model.pkl")
-    lassocv_scaler = joblib.load("research/models/lasso_cv_scaler.pkl")
-    return ols, wls, ridge, ridge_scaler, ridgecv, ridgecv_scaler, lassocv, lassocv_scaler
+    return ols, wls
 
 # =====================
 # 2. Main Workflow
 # =====================
-with st.spinner("Loading and processing stock data..."):
+with st.spinner("Loading ..."):
     # Load per-stock data
     stock_feature = feature_df[feature_df["stock_id"] == stock_id].copy()
     stock_target = target_df[target_df["stock_id"] == stock_id].copy()
@@ -81,21 +89,27 @@ with st.spinner("Loading and processing stock data..."):
     hav_df["rv_lag_10"] = hav_df["realized_volatility"].shift(10)
     hav_df = hav_df.dropna().reset_index(drop=True)
 
+
+    # Estimate average step duration in minutes
+    avg_steps = hav_df.groupby("time_id").size().mean()
+    step_duration_sec = 3600 / avg_steps
+    step_duration_min = step_duration_sec / 60
+    st.write(f"⏱ Estimated forecast step size: {step_duration_sec:.2f} seconds (~{step_duration_min:.2f} minutes per step)")
+
+
+
     X = hav_df[["rv_lag_1", "rv_lag_5", "rv_lag_10"]]
     y = hav_df["realized_volatility"]
     X_const = sm.add_constant(X)
 
     # Load models
-    ols_model, wls_model, ridge_fixed_model, ridge_fixed_scaler, ridge_cv_model, ridge_cv_scaler, lasso_cv_model, lasso_cv_scaler = load_models()
+    ols_model, wls_model = load_models()
 
     # Predict
     preds = {
         "Actual": y.values,
         "OLS": ols_model.predict(X_const),
         "WLS": wls_model.predict(X_const),
-        "Ridge (fixed alpha=1)": ridge_fixed_model.predict(ridge_fixed_scaler.transform(X)),
-        "RidgeCV (best alpha)": ridge_cv_model.predict(ridge_cv_scaler.transform(X)),
-        "LassoCV (best alpha)": lasso_cv_model.predict(lasso_cv_scaler.transform(X)),
     }
 
     # Metrics
@@ -104,7 +118,6 @@ with st.spinner("Loading and processing stock data..."):
         if model_name != "Actual":
             mse, qlike = evaluate(y, pred)
             metrics[model_name] = {"MSE": mse, "QLIKE": qlike}
-
 # =====================
 # 3. Streamlit Interface
 # =====================
@@ -114,23 +127,45 @@ selected_models = st.multiselect(
     default=["Actual", "OLS"]
 )
 
+# Forecast horizon (define after y exists)
+forecast_horizons = {
+    "Next 20 seconds": 2,
+    "Next 30 seconds": 3,
+    "Next 1 minute": 6,
+    "Next 2 minutes": 12,
+    "Next 5 minutes": 30,
+    "Next 10 minutes": 60,
+    "Full Horizon": len(y)
+}
+
+selected_horizon_label = st.selectbox(
+    "Select forecast horizon:", 
+    list(forecast_horizons.keys()), 
+    index=list(forecast_horizons.keys()).index("Full Horizon")
+)
+selected_steps = forecast_horizons[selected_horizon_label]
+
+# Plot truncated forecasts
 fig = go.Figure()
 for model in selected_models:
-    fig.add_trace(go.Scatter(y=preds[model], mode='lines', name=model))
+    fig.add_trace(go.Scatter(
+        y=preds[model][:selected_steps],
+        mode='lines',
+        name=model
+    ))
 fig.update_layout(
-    title="Volatility Forecasts",
+    title=f"Volatility Forecasts ({selected_horizon_label})",
     xaxis_title="Forecast Step",
     yaxis_title="Volatility",
     template="plotly_white"
 )
 st.plotly_chart(fig)
 
-# Show metrics table
+# Show metrics table based on selected forecast window
 table_data = []
 for model_name in selected_models:
     if model_name != "Actual":
-        mse = metrics[model_name]["MSE"]
-        qlike = metrics[model_name]["QLIKE"]
+        mse, qlike = evaluate(y[:selected_steps], preds[model_name][:selected_steps])
         table_data.append({
             "Model": model_name,
             "MSE": f"{mse:.8f}",
@@ -140,3 +175,8 @@ for model_name in selected_models:
 if table_data:
     st.subheader("Model Evaluation Metrics")
     st.dataframe(pd.DataFrame(table_data))
+
+# Optional note
+st.caption("Note: Each forecast step corresponds to approximately 10 seconds of trading time.")
+
+

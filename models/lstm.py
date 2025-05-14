@@ -2,16 +2,46 @@ import numpy as np
 import pandas as pd
 from typing import List
 import itertools
-from tensorflow.keras.models import Sequential
+from tensorflow.keras.models import Sequential, Model
 from tensorflow.keras.layers import LSTM, Dense, Dropout, Input
 from tensorflow.keras.callbacks import EarlyStopping, ReduceLROnPlateau
 from tensorflow.keras.optimizers import Adam
 from sklearn.preprocessing import StandardScaler
 from sklearn.metrics import mean_squared_error
 import matplotlib.pyplot as plt
+import pickle
+import os
 
 from models import util
 
+def save_model_and_scaler(model: Model, x_scaler, y_scaler=None, name: str = "lstm_model", subdir: str = "models/out/lstm"):
+    """
+    Save Keras model (.h5) and scalers (.pkl) under a subdirectory.
+
+    Parameters:
+        model (Model): Trained Keras model.
+        x_scaler (StandardScaler): Feature scaler.
+        y_scaler (StandardScaler or None): Target scaler (if used).
+        name (str): Base filename (no extension).
+        subdir (str): Directory to save files into. Default is models/out/lstm
+    """
+    os.makedirs(subdir, exist_ok=True)
+
+    model_path = os.path.join(subdir, f"{name}.h5")
+    scaler_path = os.path.join(subdir, f"{name}_scalers.pkl")
+
+    # Save model
+    model.save(model_path)
+
+    # Save scalers
+    with open(scaler_path, "wb") as f:
+        pickle.dump({
+            "x_scaler": x_scaler,
+            "y_scaler": y_scaler
+        }, f)
+
+    print(f"✅ Model saved to {model_path}")
+    print(f"✅ Scalers saved to {scaler_path}")
 
 
 
@@ -62,7 +92,7 @@ def baseline(sequence_df: pd.DataFrame, epochs=50, batch_size=32):
 
     # Callbacks
     callbacks = [
-        EarlyStopping(monitor='val_loss', patience=5, restore_best_weights=True),
+        EarlyStopping(monitor='val_loss', patience=10, restore_best_weights=True),
         ReduceLROnPlateau(monitor='val_loss', factor=0.5, patience=5, min_lr=1e-6)
     ]
 
@@ -93,6 +123,8 @@ def baseline(sequence_df: pd.DataFrame, epochs=50, batch_size=32):
         "time_id": time_ids_test,
         "start_time": start_times_test
     })
+
+    save_model_and_scaler(model, x_scaler, y_scaler, name="lstm_baseline")
 
     return model, history, test_df
 
@@ -145,7 +177,7 @@ def config_v256d03(sequence_df: pd.DataFrame, epochs=50, batch_size=32):
 
     # Callbacks
     callbacks = [
-        EarlyStopping(monitor='val_loss', patience=5, restore_best_weights=True),
+        EarlyStopping(monitor='val_loss', patience=10, restore_best_weights=True),
         ReduceLROnPlateau(monitor='val_loss', factor=0.5, patience=5, min_lr=1e-6)
     ]
 
@@ -177,40 +209,34 @@ def config_v256d03(sequence_df: pd.DataFrame, epochs=50, batch_size=32):
         "start_time": start_times_test
     })
 
+    save_model_and_scaler(model, x_scaler, y_scaler, name="config_v256d03")
+
     return model, history, test_df
 
 
+def config_v256d03_more_feature(sequence_df: pd.DataFrame, epochs=50, batch_size=32):
+    from models import util
 
-
-def run_lstm_experiments(
-    df,
-    param_grid = {
-        "hidden_dim": [64, 128],
-        "dropout": [0.1, 0.3],
-        "lr": [1e-4, 5e-4],
-        "batch_size": [32],
-        "normalize_y": [True]
-    },
-    epochs=20,
-    plot_time_id=None,
-):
-
-    results = []
-
+    df = sequence_df.copy()
     df = df[df["X"].notna()].reset_index(drop=True)
+
+    # Unpack
     X = np.stack(df["X"].values)
     y = df["y"].values
     time_ids = df["time_id"].values
     start_times = df["start_time"].values
 
+    # Standardize features
     n_steps, n_feats = X.shape[1], X.shape[2]
-    X_flat = X.reshape(-1, n_feats)
+    X_reshaped = X.reshape(-1, n_feats)
     x_scaler = StandardScaler()
-    X_scaled = x_scaler.fit_transform(X_flat).reshape(-1, n_steps, n_feats)
+    X_scaled = x_scaler.fit_transform(X_reshaped).reshape(-1, n_steps, n_feats)
 
+    # Split by time_id
     unique_ids = np.sort(np.unique(time_ids))
-    cutoff = int(len(unique_ids) * 0.8)
-    train_ids, test_ids = unique_ids[:cutoff], unique_ids[cutoff:]
+    split_idx = int(len(unique_ids) * 0.8)
+    train_ids, test_ids = unique_ids[:split_idx], unique_ids[split_idx:]
+
     train_mask = np.isin(time_ids, train_ids)
     test_mask = np.isin(time_ids, test_ids)
 
@@ -219,56 +245,54 @@ def run_lstm_experiments(
     time_ids_test = time_ids[test_mask]
     start_times_test = start_times[test_mask]
 
-    keys, values = zip(*param_grid.items())
-    for combo in itertools.product(*values):
-        params = dict(zip(keys, combo))
-        print(f"\n--- Training with config: {params} ---")
+    # Standardize targets
+    y_scaler = StandardScaler()
+    y_train_scaled = y_scaler.fit_transform(y_train.reshape(-1, 1)).ravel()
+    y_test_scaled = y_scaler.transform(y_test.reshape(-1, 1)).ravel()
 
-        if params["normalize_y"]:
-            y_scaler = StandardScaler()
-            y_train_scaled = y_scaler.fit_transform(y_train.reshape(-1, 1)).ravel()
-            y_test_scaled = y_scaler.transform(y_test.reshape(-1, 1)).ravel()
-        else:
-            y_train_scaled = y_train
-            y_test_scaled = y_test
+    # Build model
+    model = Sequential([
+        Input(shape=X_train.shape[1:]),
+        LSTM(256, return_sequences=False),
+        Dropout(0.3),
+        Dense(1, activation="linear")
+    ])
+    model.compile(optimizer=Adam(learning_rate=1e-4), loss="mse")
 
-        model = Sequential([
-            Input(shape=X_train.shape[1:]),
-            LSTM(params["hidden_dim"], return_sequences=False),
-            Dropout(params["dropout"]),
-            Dense(1, activation="linear")
-        ])
-        model.compile(optimizer=Adam(learning_rate=params["lr"]), loss="mse")
+    # Callbacks
+    callbacks = [
+        EarlyStopping(monitor='val_loss', patience=10, restore_best_weights=True),
+        ReduceLROnPlateau(monitor='val_loss', factor=0.5, patience=5, min_lr=1e-6)
+    ]
 
-        callbacks = [
-            EarlyStopping(monitor='val_loss', patience=5, restore_best_weights=True),
-            ReduceLROnPlateau(monitor='val_loss', factor=0.5, patience=3, min_lr=1e-6)
-        ]
-        model.fit(X_train, y_train_scaled,
-                  validation_data=(X_test, y_test_scaled),
-                  epochs=epochs, batch_size=params["batch_size"],
-                  callbacks=callbacks, verbose=0)
+    # Fit model
+    history = model.fit(
+        X_train, y_train_scaled,
+        validation_data=(X_test, y_test_scaled),
+        epochs=epochs, batch_size=batch_size,
+        callbacks=callbacks, verbose=1
+    )
 
-        y_pred_scaled = model.predict(X_test).flatten()
-        y_pred = y_scaler.inverse_transform(y_pred_scaled.reshape(-1, 1)).ravel() if params["normalize_y"] else y_pred_scaled
+    # Predict
+    y_pred_scaled = model.predict(X_test).flatten()
+    y_pred = y_scaler.inverse_transform(y_pred_scaled.reshape(-1, 1)).ravel()
 
-        mse = mean_squared_error(y_test, y_pred)
-        qlike = util.qlike_loss(y_test, y_pred)
-        da = util.directional_accuracy(y_test, y_pred)
+    # Evaluate
+    mse = mean_squared_error(y_test, y_pred)
+    print("=== Final Evaluation ===")
+    print(f"MSE: {mse:.8f}")
+    print(f"RMSE: {np.sqrt(mse):.8f}")
+    print(f"QLIKE: {util.qlike_loss(y_test, y_pred):.4f}")
+    print(f"Directional Accuracy: {util.directional_accuracy(y_test, y_pred):.4f}")
 
-        test_df = pd.DataFrame({
-            "y_true": y_test,
-            "y_pred": y_pred,
-            "time_id": time_ids_test,
-            "start_time": start_times_test
-        })
+    # Output for plotting
+    test_df = pd.DataFrame({
+        "y_true": y_test,
+        "y_pred": y_pred,
+        "time_id": time_ids_test,
+        "start_time": start_times_test
+    })
 
-        # Decide which time_id to plot
-        selected_time_id = plot_time_id or test_df["time_id"].value_counts().idxmax()
-        util.plot_prediction_vs_actual(test_df, selected_time_id)
+    save_model_and_scaler(model, x_scaler, y_scaler, name="config_v256d03_more_feature")
 
-        result = params.copy()
-        result.update({"mse": mse, "qlike": qlike, "directional_accuracy": da})
-        results.append(result)
-
-    return pd.DataFrame(results)
+    return model, history, test_df
