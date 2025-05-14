@@ -73,7 +73,7 @@ def ols(df: pd.DataFrame):
     qlike = util.qlike_loss(y_test.values, y_pred)
     directional_acc = util.directional_accuracy(y_test.values, y_pred)
 
-    print("=== HAR-RV Baseline Evaluation ===")
+    print("=== HAR-RV OLS Baseline Evaluation ===")
     print(f"MSE: {mse:.8f}")
     print(f"RMSE: {rmse:.8f}")
     print(f"QLIKE: {qlike:.4f}")

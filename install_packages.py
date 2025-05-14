@@ -1,11 +1,21 @@
-# this script automatically installs packages listed only if they’re not already installed
 import subprocess
 import sys
+import pkg_resources
+import sys
 
-# Define packages and their versions (if needed)
+def check_python_version(allowed_versions=("3.9", "3.10")):
+    current_version = sys.version
+    if not sys.version.startswith(allowed_versions):
+        print("Warning: This project is tested with Python versions:", ", ".join(allowed_versions))
+        print("You are using:", current_version)
+        print("TensorFlow 2.14 may not work on this version.")
+    else:
+        print(f" Python version is compatible: {current_version.split()[0]}")
+
+# Define packages and specific versions
 versioned_packages = {
     "pandas": "pandas",
-    "numpy": "numpy",
+    "numpy": "numpy==1.23.5",
     "pyarrow": "pyarrow",
     "scikit-learn": "scikit-learn",
     "statsmodels": "statsmodels",
@@ -13,29 +23,39 @@ versioned_packages = {
     "torch": "torch==2.1.0",
     "torchvision": "torchvision==0.16.0",
     "torchaudio": "torchaudio==2.1.0",
-    "ipython": "ipython"
+    "ipython": "ipython",
+    "tensorflow": "tensorflow==2.14.0",
+    "arch": "arch",
+    "tqdm": "tqdm"   
+
 }
+
 
 def install_dependencies():
     installed = []
 
-    def install_if_missing(package, import_name=None):
+    for import_name, pip_spec in versioned_packages.items():
+        package_name = pip_spec.split("==")[0]
+        required_version = pip_spec.split("==")[1] if "==" in pip_spec else None
+
         try:
-            __import__(import_name or package)
-        except ImportError:
-            print(f"Installing: {package}")
-            installed.append(package)
+            dist = pkg_resources.get_distribution(import_name)
+            current_version = dist.version
+
+            if required_version and current_version != required_version:
+                print(f"{import_name}=={current_version} installed, replacing with {pip_spec}...")
+                subprocess.check_call(
+                    [sys.executable, "-m", "pip", "install", "--upgrade", "--force-reinstall", pip_spec]
+                )
+                installed.append(pip_spec)
+        except pkg_resources.DistributionNotFound:
+            print(f"Installing missing package: {pip_spec}")
             subprocess.check_call(
-                [sys.executable, "-m", "pip", "install", package],
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL
+                [sys.executable, "-m", "pip", "install", pip_spec]
             )
+            installed.append(pip_spec)
 
-    for pkg, ver in versioned_packages.items():
-        install_if_missing(ver, pkg)
+    print("All dependencies installed. Changes:", installed if installed else "Nothing new.")
 
-    print("Requirements satisfied. Installed:", installed if installed else "Nothing new.")
-
-# Only run if this script is called directly (not when imported)
 if __name__ == "__main__":
     install_dependencies()
