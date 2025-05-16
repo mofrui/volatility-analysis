@@ -1,11 +1,18 @@
+# install packages
+# pip install shiny shinywidgets faicons seaborn statsmodels pandas numpy scikit-learn matplotlib tensorflow
+
+# to run: shiny run --reload dashboard/dashboard_app.py 
+
 from faicons import icon_svg
 import seaborn as sns
 from shinywidgets import render_plotly
-
 from shiny import reactive, req
 from shiny.express import input, render, ui
 import model
 import statsmodels.api as sm
+import time
+import joblib
+from tensorflow.keras.models import load_model
 
 stock_ids = {
     22771: "22771: NFLX XNAS",
@@ -16,8 +23,7 @@ stock_ids = {
 ui.page_opts(title="Volatility prediction dashboard", fillable=True)
 
 with ui.sidebar(title="Model Selection"):
-    ui.input_file("model", "Select a model", accept=".pkl")
-    ui.input_select("selected_stock_id", "Choose a Stock ID you want to predict:", stock_ids, selected=9323)
+    ui.input_select("selected_stock_id", "Select a Stock ID you want to predict:", stock_ids, selected=50200)
 
 
 with ui.layout_column_wrap(fill=False):
@@ -27,7 +33,7 @@ with ui.layout_column_wrap(fill=False):
         @render.text
         def qlike():
             actual, predicted = prediction()
-            return model.qlike(actual, predicted)
+            return f"{round(model.qlike(actual, predicted), 3)}"
 
     with ui.value_box(showcase=icon_svg("xmark")):
         "MSE"
@@ -35,7 +41,7 @@ with ui.layout_column_wrap(fill=False):
         @render.text
         def mse():
             actual, predicted = prediction()
-            return model.mse(actual, predicted)
+            return f"{round(model.mse(actual, predicted), 3)}"
 
     with ui.value_box(showcase=icon_svg("ruler-combined")):
         "RMSE"
@@ -43,7 +49,16 @@ with ui.layout_column_wrap(fill=False):
         @render.text
         def rmse():
             actual, predicted = prediction()
-            return model.rmse(actual, predicted)
+            return f"{round(model.rmse(actual, predicted), 3)}"
+        
+    with ui.value_box(showcase=icon_svg("clock")):
+        "Computation Time (s)"
+
+        @render.text
+        def comp_time():
+            prediction()  # trigger calculation
+            return f"{round(prediction.elapsed, 3)}"
+
 
 
 with ui.layout_columns():
@@ -66,20 +81,28 @@ with ui.layout_columns():
 
 # ui.include_css("styles.css")
 
+# Reactive prediction logic with timing
 @reactive.calc
 def prediction():
-    fileinfo = input.model()
-    req(fileinfo)
-    model_name = fileinfo[0]["name"]
-    model_path = f"Models/{model_name}"
-    selected_model = model.load_model(model_path)
-    load_data = model.load_data(input.selected_stock_id())
+    start_time = time.time()
 
+    model_path = "models/out/lstm/config_v256d03_more_feature.h5"
+    scaler_path = "models/out/lstm/config_v256d03_more_feature_scalers.pkl"
+
+    selected_model = load_model(model_path)
+    scaler = joblib.load(scaler_path)
+
+    load_data = model.load_data(input.selected_stock_id())
     X = load_data[["rv_lag_1", "rv_lag_5", "rv_lag_10"]]
     y = load_data["realized_volatility"]
-    X_const = sm.add_constant(X)
+
+    X_scaled = scaler.transform(X)
+    X_lstm = X_scaled.reshape((X_scaled.shape[0], 1, X_scaled.shape[1]))
 
     actual = y.values
-    prediction = selected_model.predict(X_const)
+    predicted = selected_model.predict(X_lstm).flatten()
 
-    return actual, prediction
+    end_time = time.time()
+    prediction.elapsed = end_time - start_time
+
+    return actual, predicted
