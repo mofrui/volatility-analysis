@@ -8,16 +8,9 @@ import model
 import statsmodels.api as sm
 
 stock_ids = {
-    9323: "9323: AAPL XNAS",
-    22675: "22675: AMZN XNAS",
-    22951: "22951: FACEBOOK XNAS",
-    22729: "22729: GOOGC XNAS",
-    48219: "48219: GS XNAS",
-    22753: "22753: JPM XNAS",
     22771: "22771: NFLX XNAS",
     104919: "104919: QQQ XNAS",
     50200: "50200: SPY XNAS",
-    8382: "8382: TSLA XNAS"
 }
 
 ui.page_opts(title="Volatility prediction dashboard", fillable=True)

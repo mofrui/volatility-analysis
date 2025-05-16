@@ -26,7 +26,11 @@ versioned_packages = {
     "ipython": "ipython",
     "tensorflow": "tensorflow==2.14.0",
     "arch": "arch",
-    "tqdm": "tqdm"   
+    "tqdm": "tqdm",
+    "shiny": "shiny",
+    "shinywidgets": "shinywidgets",
+    "faicons": "faicons",
+    "seaborn": "seaborn"  
 }
 
 
