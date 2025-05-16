@@ -27,7 +27,6 @@ versioned_packages = {
     "tensorflow": "tensorflow==2.14.0",
     "arch": "arch",
     "tqdm": "tqdm"   
-
 }
 
 
