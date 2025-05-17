@@ -24,13 +24,16 @@ versioned_packages = {
     "torchvision": "torchvision==0.16.0",
     "torchaudio": "torchaudio==2.1.0",
     "ipython": "ipython",
-    "tensorflow": "tensorflow==2.14.0",
+    "tensorflow": "tensorflow==2.16.0",
     "arch": "arch",
     "tqdm": "tqdm",
     "shiny": "shiny",
     "shinywidgets": "shinywidgets",
     "faicons": "faicons",
-    "seaborn": "seaborn"  
+    "seaborn": "seaborn",
+    "plotly": "plotly",
+    "tensorflow-macos": "tensorflow-macos",
+    "tensorflow-metal": "tensorflow-metal"
 }
 
 
