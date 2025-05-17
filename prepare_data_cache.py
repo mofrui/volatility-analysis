@@ -12,15 +12,15 @@ df_feat = pd.read_parquet("data/order_book_feature.parquet")
 df_tgt = pd.read_parquet("data/order_book_target.parquet")
 
 # Features used for LSTM
-# feature_cols = [
-#     "wap", "spread_pct", "imbalance", "depth_ratio", "log_return",
-#     "log_wap_change", "rolling_std_logret", "spread_zscore", "volume_imbalance"
-# ]
-feature_cols = ["wap", "log_return"]
+feature_cols = [
+    "wap", "spread_pct", "imbalance", "depth_ratio", "log_return",
+    "log_wap_change", "rolling_std_logret", "spread_zscore", "volume_imbalance"
+]
+# feature_cols = ["wap", "log_return"]
 
 
 for stock_id in stock_ids:
-    pkl_path = f"data/preprocessed_{stock_id}.pkl"
+    pkl_path = f"data/preprocessed_9_{stock_id}.pkl"
     if Path(pkl_path).exists():
         print(f"✅ {pkl_path} already exists. Skipping...")
         continue
@@ -36,8 +36,10 @@ for stock_id in stock_ids:
     df = util.add_features(df)
 
     valid_ids = df.groupby("time_id").filter(lambda g: len(g) >= 340)["time_id"].unique()
-    limited_ids = valid_ids[:100] 
-    df = df[df["time_id"].isin(limited_ids)].copy()
+    # limited_ids = valid_ids[:100] 
+    # df = df[df["time_id"].isin(limited_ids)].copy()
+    df = df[df["time_id"].isin(valid_ids)].copy()
+
 
     lstm_df = util.generate_tick_sequences(df, feature_cols)
     if lstm_df.empty:
