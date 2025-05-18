@@ -7,7 +7,7 @@ from sklearn.linear_model import LinearRegression
 from sklearn.metrics import mean_squared_error
 import statsmodels.api as sm
 
-from models_code import util
+from code import util
 
 
 def save_regression_model(model, name: str = "har_model", subdir: str = "out/harrv"):

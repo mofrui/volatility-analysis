@@ -1,33 +1,28 @@
+# Standard library
 import os
 import time
 import pickle
+from typing import List
+
+# Third-party libraries
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
-from typing import List
-
-from tensorflow.keras.models import Sequential
-from tensorflow.keras.layers import Input, LSTM, Dense
-from tensorflow.keras.optimizers import Adam
-from tensorflow.keras.callbacks import EarlyStopping, ReduceLROnPlateau
-from sklearn.preprocessing import StandardScaler
-
-import os
-import pickle
-import time
-import numpy as np
-import pandas as pd
 import tensorflow as tf
-from tensorflow.keras.models import Model
+from tensorflow.keras.models import Sequential, Model
 from tensorflow.keras.layers import (
-    Input, Conv1D, Dropout, Bidirectional, LSTM,
-    Attention, GlobalAveragePooling1D, Dense
+    Input, LSTM, Dense,
+    Conv1D, Dropout,
+    Bidirectional, Attention,
+    GlobalAveragePooling1D
 )
 from tensorflow.keras.optimizers import Adam
 from tensorflow.keras.callbacks import EarlyStopping, ReduceLROnPlateau
 from sklearn.preprocessing import StandardScaler
 
-import p1.util as util
+# Local modules
+import src.util as util
+
 
 def baseline(snapshot_df: pd.DataFrame,
                   basic_features: list = ['wap', 'log_return'],
