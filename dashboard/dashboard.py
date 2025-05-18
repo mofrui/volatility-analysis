@@ -1,111 +1,150 @@
-import streamlit as st
-import pandas as pd
-import numpy as np
-import os
-import joblib
-from tensorflow.keras.models import load_model
-import plotly.graph_objects as go
-#  ~/.pyenv/versions/3.9.18/bin/streamlit run dashboard/dashboard.py
+from shiny import App, Inputs, reactive, render, ui
+from faicons import icon_svg
+import seaborn as sns
+import statsmodels.api as sm
+import model
 
-st.set_page_config(
-        page_title="Volatility Dashboard",
-        layout="wide"
+# --- Sidebar: Stock selection ---
+sidebar = ui.sidebar(
+    ui.input_select(
+        "selected_stock_id",
+        "Choose a Stock ID you want to predict:",
+        {
+            22771: "22771: NFLX XNAS",
+            104919: "104919: QQQ XNAS",
+            50200: "50200: SPY XNAS",
+        },
+        selected=22771,
+    ),
+    ui.input_checkbox_group(
+        "stock_ids",
+        "Select Stock ID you want to compare",
+        {
+            22771: "22771: NFLX XNAS",
+            104919: "104919: QQQ XNAS",
+            50200: "50200: SPY XNAS"
+        }
     )
-# Add tabbed navigation
-tab1, tab2, tab3 = st.tabs([
-    "📘 About & Volatility",
-    "📈 Volatility Dashboard",
-    "📊 Quoting Strategy Suggestion"
-])
+)
 
-with tab1:
-    st.title("📘 What This App Does")
-    st.markdown("""
-    This interactive dashboard helps visualize and predict **short-term market volatility** using high-frequency order book data.
+# --- Define App UI ---
+app_ui = ui.page_navbar(
+    ui.nav_panel(
+        "Volatility Forecast",  # Combined tab name
+        ui.layout_columns(
+            ui.value_box(title="Q-like", value=ui.output_text("qlike")),
+            ui.value_box(title="MSE", value=ui.output_text("mse")),
+            ui.value_box(title="RMSE", value=ui.output_text("rmse")),
+        ),
+        ui.card(
+            ui.card_header("Actual vs Predicted Volatility"),
+            ui.output_plot("predict_plot")
+        ),
+        {"class": "bslib-page-dashboard"},
+    ),
+    ui.nav_panel(
+        "Predicting the Optimal Quote Placement",
+        ui.card(
+            ui.card_header("Prediction for Selected Stock"),
+            ui.output_plot("display_prediction")
+        ),
+        {"class": "bslib-page-dashboard"},
+    ),
+    sidebar=sidebar,
+    title="Volatility Prediction Dashboard",
+    fillable=True,
+    id="tabs"
+)
 
-    **Key Concepts:**
-    - **Volatility** measures how much prices fluctuate over time — crucial for traders managing risk.
-    - **Realized Volatility** is computed from log returns over short intervals (e.g., 10-second buckets).
-    - This app uses a trained **LSTM model** to forecast volatility, aiding in strategies like quoting bid-ask spreads.
+# --- Server Logic ---
+def server(input: Inputs):
+    @reactive.calc()
+    def prediction_all():
+        model_path = "Models/ols_model.pkl"
+        selected_model = model.load_model(model_path)
 
-    ---
-    Navigate to the second tab to explore forecasts, or the third tab to simulate quoting strategy predictions.
-    """)
+        stock_ids = ["22771", "104919", "50200"]  # All supported stock IDs
 
-with tab2:
-   
-    # Set seed
-    np.random.seed(3888)
+        actual_dict = {}
+        predicted_dict = {}
 
-    # Stock name map
-    stock_names = {
-        50200: "SPY XNAS",
-        104919: "QQQ XNAS",
-        22771: "NFLX XNAS"
-    }
+        for sid in stock_ids:
+            load_data = model.load_data(int(sid))
+            X = load_data[["rv_lag_1", "rv_lag_5", "rv_lag_10"]]
+            y = load_data["realized_volatility"]
+            X_const = sm.add_constant(X)
 
-    # ===========
-    # Load model + scalers
-    # ===========
-    @st.cache_resource
-    def load_lstm_model_and_scalers():
-        # 2 features archive 
-        # model = load_model("Archive/baseline.h5", compile=False)
-        # scalers = joblib.load("Archive/baseline_scalers.pkl")
-        model = load_model("models/out/lstm/config_v256d03_more_feature.h5", compile=False)
-        scalers = joblib.load("models/out/lstm/config_v256d03_more_feature_scalers.pkl")
-        return model, scalers["x_scaler"], scalers["y_scaler"]
+            actual_dict[sid] = y.values
+            predicted_dict[sid] = selected_model.predict(X_const)
 
-    @st.cache_data
-    def load_preprocessed_data(stock_id):
-        return pd.read_pickle(f"data/preprocessed_9_{stock_id}.pkl")
+        return {
+            "actual": actual_dict,
+            "predicted": predicted_dict
+        }
 
-    # ===========
-    # User selection
-    # ===========
-    options = [f"{sid} – {stock_names[sid]}" for sid in stock_names]
-    selected_label = st.selectbox("Choose a stock:", options)
-    stock_id = int(selected_label.split(" – ")[0])
+    @render.text
+    def qlike():
+        sid = input.selected_stock_id()
+        all_predictions = prediction_all()
+        return model.qlike(all_predictions["actual"][sid], all_predictions["predicted"][sid])
 
-    # ===========
-    # Prediction
-    # ===========
-    with st.spinner("Loading and predicting..."):
-        df = load_preprocessed_data(stock_id)
-        model, x_scaler, y_scaler = load_lstm_model_and_scalers()
+    @render.text
+    def mse():
+        sid = input.selected_stock_id()
+        all_predictions = prediction_all()
+        return model.mse(all_predictions["actual"][sid], all_predictions["predicted"][sid])
 
-        X = df.drop(columns=["realized_volatility"])
-        y_true = df["realized_volatility"].values
+    @render.text
+    def rmse():
+        sid = input.selected_stock_id()
+        all_predictions = prediction_all()
+        return model.rmse(all_predictions["actual"][sid], all_predictions["predicted"][sid])
 
-        X_scaled = x_scaler.transform(X)
-        X_lstm = X_scaled.reshape((X_scaled.shape[0], 1, X_scaled.shape[1]))
-        y_pred_scaled = model.predict(X_lstm).flatten()
-        y_pred = y_scaler.inverse_transform(y_pred_scaled.reshape(-1, 1)).flatten()
+    @render.plot
+    def predict_plot():
+        sid = input.selected_stock_id()
+        all_predictions = prediction_all()
 
-    # ===========
-    # Plot
-    # ===========
-    selected_steps = st.slider("Forecast steps to display", 20, min(len(y_true), 200), 100)
+        actual = all_predictions["actual"][sid]
+        predicted = all_predictions["predicted"][sid]
 
-    fig = go.Figure()
-    fig.add_trace(go.Scatter(y=y_true[:selected_steps], name="Actual", mode="lines"))
-    fig.add_trace(go.Scatter(y=y_pred[:selected_steps], name="Predicted", mode="lines"))
-    fig.update_layout(title="LSTM Forecast vs Actual", xaxis_title="Step", yaxis_title="Volatility", template="plotly_white")
-    st.plotly_chart(fig)
+        ax = sns.lineplot(x=range(len(actual)), y=actual, label="Actual", linestyle="-", color="blue")
+        sns.lineplot(x=range(len(predicted)), y=predicted, label="Predicted", linestyle="--", color="orange", ax=ax)
+        ax.set_title(f"Actual vs Predicted Volatility for Stock {sid}")
+        ax.set_xlabel("Time")
+        ax.set_ylabel("Realized Volatility")
+        return ax.figure
 
-    # ===========
-    # Metrics
-    # ===========
-    def evaluate(true, pred):
-        pred = np.clip(pred, 1e-8, None)
-        true = np.clip(true, 1e-8, None)
-        mse = np.mean((true - pred) ** 2)
-        qlike = np.mean(np.log(pred**2) + (true**2) / (pred**2))
-        return mse, qlike
+    @render.plot
+    def display_prediction():
+        selected_ids = input.stock_ids()
+        if not selected_ids:
+            return None  # Avoid plotting if none selected
 
-    mse_val, qlike_val = evaluate(y_true[:selected_steps], y_pred[:selected_steps])
+        all_predictions = prediction_all()
+        predicted_dict = all_predictions["predicted"]
 
-    st.subheader("LSTM Evaluation Metrics")
-    st.write(f"**MSE**: {mse_val:.8f}")
-    st.write(f"**QLIKE**: {qlike_val:.8f}")
+        ax = None
+        for sid in selected_ids:
+            if sid not in predicted_dict:
+                continue  # skip any unknown ID (defensive)
 
+            predicted = predicted_dict[sid]
+            label = f"Stock {sid}"
+
+            ax = sns.lineplot(
+                x=range(len(predicted)),
+                y=predicted,
+                label=label,
+                linestyle="--",
+                ax=ax
+            )
+
+        ax.set_title("Predicted Volatility for Selected Stocks")
+        ax.set_xlabel("Time")
+        ax.set_ylabel("Predicted Volatility")
+        return ax.figure
+
+
+# --- Create App ---
+app = App(app_ui, server)
