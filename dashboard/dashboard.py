@@ -30,6 +30,36 @@ sidebar = ui.sidebar(
 # --- Define App UI ---
 app_ui = ui.page_navbar(
     ui.nav_panel(
+    "📘 About This App",
+    ui.card(
+        ui.card_header("What This Dashboard Does"),
+        ui.markdown("""
+        This interactive dashboard visualizes and predicts **short-term market volatility**
+        using high-frequency limit order book data. with our final model:LSTM
+
+        **What You Can Do:**
+        - Select a stock to view predicted vs actual volatility.
+        - Compare predicted volatility across multiple stocks.
+        - Use the prediction output to guide quoting strategies.
+
+        **Why Volatility Matters:**
+        - Volatility reflects the speed and magnitude of price movements.
+        - It helps traders manage risk and optimize bid-ask spreads.
+        """)
+    ),
+    ui.card(
+        ui.card_header("Key Features"),
+        ui.markdown("""
+        - ✅ Real-time OLS model predictions  
+        - 📉 Evaluation using QLIKE, MSE, RMSE  
+        - 🔁 Compare multiple stocks simultaneously  
+        - 🧠 Built using `Shiny for Python` and `Seaborn`  
+        """)
+    ),
+    {"class": "bslib-page-dashboard"},
+),
+
+    ui.nav_panel(
         "Volatility Forecast",  # Combined tab name
         ui.layout_columns(
             ui.value_box(title="Q-like", value=ui.output_text("qlike")),
