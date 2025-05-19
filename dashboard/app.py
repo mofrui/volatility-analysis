@@ -10,8 +10,9 @@ import os
 
 # --- UI: Sidebar & Panels ---
 forecast_sidebar = ui.sidebar(
-    ui.input_select("selected_stock_id_forecast", "Choose a Stock ID:", {50200: "50200: SPY XNAS"}, selected=50200),
-    ui.input_select("selected_time_id_forecast", "Choose a Time ID:", {14: "14", 246:"246"}, selected=14)
+    ui.input_select("selected_stock_id_forecast", "Choose a Stock ID:", {50200: "50200: SPY XNAS", 104919: "104919: QQQ XNAS", 22771: "22771: NFLX XNAS"}, selected=50200),
+    ui.input_select("selected_time_id_forecast", "Choose a Time ID:", {14: "14", 246:"246"}, selected=14),
+    ui.markdown("**Note:** Each `time_id` represents one hour of trading data.")
 )
 
 app_ui = ui.page_navbar(
@@ -149,7 +150,6 @@ def server(input: Inputs):
     def inference_time():
         df = cached_predictions()
         return f"{df.attrs['inference_time']:.4f} seconds"
-
 
 
     @render.plot
