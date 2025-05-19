@@ -48,49 +48,43 @@ app_ui = ui.page_navbar(
         - Predicting short-term volatility helps optimize quote placement, balancing risk and profitability.
 
         **About the Selected Stocks:**
-                    
         The dashboard includes three representative stocks to evaluate model performance across varying correlation structures:
         1. **Stock 50200 (SPY XNAS)** – used to train the LSTM model. It tracks a broad market ETF and serves as the primary benchmark.
         2. **Stock 104919 (QQQ XNAS)** – selected as the **most correlated** stock based on mean log return analysis. It represents a tech-heavy index with strong alignment to SPY XNAS.
         3. **Stock 22753 (NFLX XNAS)** – chosen as the **least correlated** stock based on mean log return analysis.
-                    
-        """)
-
-    ),
-    ui.card(
-        ui.card_header("Key Features"),
-        ui.markdown("""
-        - ✅ Real-time OLS model predictions  
-        - 📉 Evaluation using QLIKE, MSE, RMSE  
-        - 🔁 Compare multiple stocks simultaneously  
-        - 🧠 Built using `Shiny for Python` and `Seaborn`  
         """)
     ),
     {"class": "bslib-page-dashboard"},
 ),
 
+
     ui.nav_panel(
-        "Volatility Forecast",  # Combined tab name
-        ui.layout_columns(
-            ui.value_box(title="Q-like", value=ui.output_text("qlike")),
-            ui.value_box(title="MSE", value=ui.output_text("mse")),
-            ui.value_box(title="RMSE", value=ui.output_text("rmse")),
-        ),
-        ui.card(
-            ui.card_header("Actual vs Predicted Volatility"),
-            ui.output_plot("predict_plot")
+        "📊 Volatility Forecast",  # Combined tab name
+        ui.layout_sidebar(
+            sidebar,  
+            ui.layout_columns(
+                ui.value_box(title="Q-like", value=ui.output_text("qlike")),
+                ui.value_box(title="MSE", value=ui.output_text("mse")),
+                ui.value_box(title="RMSE", value=ui.output_text("rmse")),
+            ),
+            ui.card(
+                ui.card_header("Actual vs Predicted Volatility"),
+                ui.output_plot("predict_plot")
+            )
         ),
         {"class": "bslib-page-dashboard"},
     ),
     ui.nav_panel(
-        "Predicting the Optimal Quote Placement",
-        ui.card(
-            ui.card_header("Prediction for Selected Stock"),
-            ui.output_plot("display_prediction")
+        "📊 Quoting Strategies",
+         ui.layout_sidebar(
+            sidebar,  
+            ui.card(
+                ui.card_header("Volatility-Informed Quoting Strategy"),
+                ui.output_plot("display_prediction")
+            )
         ),
         {"class": "bslib-page-dashboard"},
     ),
-    sidebar=sidebar,
     title="Volatility Prediction Dashboard",
     fillable=True,
     id="tabs"
