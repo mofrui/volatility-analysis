@@ -1,0 +1,152 @@
+# dashboard.py (cleaned)
+from shiny import App, Inputs, reactive, render, ui
+import seaborn as sns
+import pandas as pd
+import model
+from model import load_model, qlike_loss, mse_custom, rmse_custom
+import pickle
+
+# --- UI: Sidebar & Panels ---
+forecast_sidebar = ui.sidebar(
+    ui.input_select("selected_stock_id_forecast", "Choose a Stock ID:", {50200: "50200: SPY XNAS"}, selected=50200),
+    ui.input_select("selected_time_id_forecast", "Choose a Time ID:", {14: "14", 246:"246", 846:"846", 1116:"1116"}, selected=14)
+)
+
+app_ui = ui.page_navbar(
+    ui.nav_panel(
+    "📘 About This App",
+    ui.card(
+        ui.card_header("What This Dashboard Does"),
+        ui.markdown("""
+       This interactive dashboard visualizes and predicts **short-term market volatility**
+        using high-frequency limit order book data.
+
+        The **“Volatility Forecast”** tab presents predictions generated using our final model: **LSTM**, 
+        along with evaluation metrics and actual vs predicted visualizations.
+
+        The **“Quoting Strategies”** tab gives quoting strategy suggestions based on predicted volatility 
+        and its relationship to bid-ask spreads. 
+
+        **Higher predicted volatility typically calls for wider spreads** to manage risk, 
+        while lower volatility allows for tighter spreads to stay competitive.
+
+
+        **What You Can Do:**
+        - Select a stock to view predicted vs actual volatility.
+        - Compare predicted volatility across multiple stocks.
+        - Use the prediction output to guide quoting strategies and market decisions.
+
+        **Why Volatility Matters:**
+        - Volatility reflects the speed and magnitude of price movements.
+        - Higher volatility typically leads to wider bid-ask spreads as market makers adjust for risk.
+        - Predicting short-term volatility helps optimize quote placement, balancing risk and profitability.
+
+        **About the Selected Stocks:**
+        The dashboard includes three representative stocks to evaluate model performance across varying correlation structures:
+        1. **Stock 50200 (SPY XNAS)** – used to train the LSTM model. It tracks a broad market ETF and serves as the primary benchmark.
+        2. **Stock 104919 (QQQ XNAS)** – selected as the **most correlated** stock based on mean log return analysis. It represents a tech-heavy index with strong alignment to SPY XNAS.
+        3. **Stock 22753 (NFLX XNAS)** – chosen as the **least correlated** stock based on mean log return analysis.
+        """)
+    ),
+    {"class": "bslib-page-dashboard"},
+),
+
+    ui.nav_panel("📊 Volatility Forecast",
+        ui.layout_sidebar(
+            forecast_sidebar,
+            ui.layout_columns(
+                ui.value_box(title="Q-like", value=ui.output_text("qlike")),
+                ui.value_box(title="MSE", value=ui.output_text("mse")),
+                ui.value_box(title="RMSE", value=ui.output_text("rmse")),
+            ),
+            ui.card(
+                ui.card_header("Actual vs Predicted Volatility"),
+                ui.output_plot("predict_plot")
+            )
+        )
+    ),
+    title="Volatility Prediction Dashboard",
+    fillable=True,
+    id="tabs"
+)
+
+# --- Server Logic ---
+def server(input: Inputs):
+    prediction_cache = {}
+
+    @reactive.calc()
+    def prediction_all():
+        model_path = "out/lstm/advanced.h5"
+        scaler_path = "out/lstm/advanced_scalers.pkl"
+
+        lstm_model = load_model(model_path)
+        with open(scaler_path, "rb") as f:
+            scalers = pickle.load(f)
+        x_scaler = scalers["x_scaler"]
+        y_scaler = scalers["y_scaler"]
+
+        sid = input.selected_stock_id_forecast()
+        tid = input.selected_time_id_forecast()
+
+        X, y_true, time_ids, start_times = model.prepare_lstm_data(sid, tid)
+        X_scaled = x_scaler.transform(X.reshape(-1, X.shape[-1])).reshape(X.shape)
+        y_pred_scaled = lstm_model.predict(X_scaled, verbose=0)
+        y_pred = y_scaler.inverse_transform(y_pred_scaled).ravel()
+
+         # --- DEBUG PRINTS ---
+        print("y_true range:", y_true.min(), y_true.max())
+        print("y_pred range:", y_pred.min(), y_pred.max())
+
+        print("X sample (before scaling):", X[0][0])
+        print("X sample (after scaling):", X_scaled[0][0])
+        print("y_true sample:", y_true[:5])
+        print("y_pred_scaled sample:", y_pred_scaled[:5])
+        print("y_pred final sample:", y_pred[:5])
+        print("----")
+
+
+        return pd.DataFrame({"start_time": start_times, "y_true": y_true, "y_pred": y_pred})
+    @reactive.calc()
+    def cached_predictions():
+        return prediction_all()
+    
+    @render.text
+    def qlike():
+        df = cached_predictions()
+        return f"{qlike_loss(df['y_true'], df['y_pred']):.6f}"
+    @render.text
+    def mse():
+        df = cached_predictions()
+        return f"{mse_custom(df['y_true'].values, df['y_pred'].values):.6f}"
+
+    @render.text
+    def rmse():
+        df = cached_predictions()
+        return f"{rmse_custom(df['y_true'].values, df['y_pred'].values):.6f}"
+
+
+
+    @render.plot
+    def predict_plot():
+        df = prediction_all()
+        cutoff_sec = 1000  # fixed prediction start
+
+        # Mask predictions before cutoff
+        df.loc[df["start_time"] < cutoff_sec, "y_pred"] = float("nan")
+
+        ax = sns.lineplot(x=df['start_time'], y=df['y_true'], label="Actual", linestyle="-", color="blue")
+        sns.lineplot(x=df['start_time'], y=df['y_pred'], label="Predicted", linestyle="--", color="orange", ax=ax)
+
+        # Draw vertical line at cutoff
+        ax.axvline(x=cutoff_sec, color='red', linestyle=':', label="Prediction Start")
+        
+        ax.set_title("Actual vs Predicted Volatility (Prediction begins at 1000s)")
+        ax.set_xlabel("Seconds in Bucket")
+        ax.set_ylabel("Realized Volatility")
+        ax.legend()
+
+        return ax.figure
+
+
+# --- Create App ---
+app = App(app_ui, server)
