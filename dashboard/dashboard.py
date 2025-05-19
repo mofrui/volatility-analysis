@@ -35,17 +35,27 @@ app_ui = ui.page_navbar(
         ui.card_header("What This Dashboard Does"),
         ui.markdown("""
         This interactive dashboard visualizes and predicts **short-term market volatility**
-        using high-frequency limit order book data. with our final model:LSTM
+        using high-frequency limit order book data. The predictions are generated using our final model: **LSTM**.
 
         **What You Can Do:**
         - Select a stock to view predicted vs actual volatility.
         - Compare predicted volatility across multiple stocks.
-        - Use the prediction output to guide quoting strategies.
+        - Use the prediction output to guide quoting strategies and market decisions.
 
         **Why Volatility Matters:**
         - Volatility reflects the speed and magnitude of price movements.
-        - It helps traders manage risk and optimize bid-ask spreads.
+        - Higher volatility typically leads to wider bid-ask spreads as market makers adjust for risk.
+        - Predicting short-term volatility helps optimize quote placement, balancing risk and profitability.
+
+        **About the Selected Stocks:**
+                    
+        The dashboard includes three representative stocks to evaluate model performance across varying correlation structures:
+        1. **Stock 50200 (SPY XNAS)** – used to train the LSTM model. It tracks a broad market ETF and serves as the primary benchmark.
+        2. **Stock 104919 (QQQ XNAS)** – selected as the **most correlated** stock based on mean log return analysis. It represents a tech-heavy index with strong alignment to SPY XNAS.
+        3. **Stock 22753 (NFLX XNAS)** – chosen as the **least correlated** stock based on mean log return analysis.
+                    
         """)
+
     ),
     ui.card(
         ui.card_header("Key Features"),
