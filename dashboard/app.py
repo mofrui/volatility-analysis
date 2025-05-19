@@ -5,11 +5,13 @@ import pandas as pd
 import model
 from model import load_model, qlike_loss, mse_custom, rmse_custom
 import pickle
+import time
+import os
 
 # --- UI: Sidebar & Panels ---
 forecast_sidebar = ui.sidebar(
     ui.input_select("selected_stock_id_forecast", "Choose a Stock ID:", {50200: "50200: SPY XNAS"}, selected=50200),
-    ui.input_select("selected_time_id_forecast", "Choose a Time ID:", {14: "14", 246:"246", 846:"846", 1116:"1116"}, selected=14)
+    ui.input_select("selected_time_id_forecast", "Choose a Time ID:", {14: "14", 246:"246"}, selected=14)
 )
 
 app_ui = ui.page_navbar(
@@ -56,8 +58,9 @@ app_ui = ui.page_navbar(
             forecast_sidebar,
             ui.layout_columns(
                 ui.value_box(title="Q-like", value=ui.output_text("qlike")),
-                ui.value_box(title="MSE", value=ui.output_text("mse")),
                 ui.value_box(title="RMSE", value=ui.output_text("rmse")),
+                ui.value_box(title="Inference Time", value=ui.output_text("inference_time")),
+
             ),
             ui.card(
                 ui.card_header("Actual vs Predicted Volatility"),
@@ -73,26 +76,38 @@ app_ui = ui.page_navbar(
 # --- Server Logic ---
 def server(input: Inputs):
     prediction_cache = {}
+    # Load model + scalers only once
+    model_path = "out/lstm/advanced.h5"
+    scaler_path = "out/lstm/advanced_scalers.pkl"
+    lstm_model = load_model(model_path)
+    with open(scaler_path, "rb") as f:
+        scalers = pickle.load(f)
+    x_scaler = scalers["x_scaler"]
+    y_scaler = scalers["y_scaler"]
 
     @reactive.calc()
     def prediction_all():
-        model_path = "out/lstm/advanced.h5"
-        scaler_path = "out/lstm/advanced_scalers.pkl"
-
-        lstm_model = load_model(model_path)
-        with open(scaler_path, "rb") as f:
-            scalers = pickle.load(f)
-        x_scaler = scalers["x_scaler"]
-        y_scaler = scalers["y_scaler"]
-
         sid = input.selected_stock_id_forecast()
         tid = input.selected_time_id_forecast()
+        cache_path = f"dashboard/predictions/pred_{sid}_{tid}.pkl"
 
+        # If already cached, load from .pkl
+        if os.path.exists(cache_path):
+            print(f"[CACHE] Loaded precomputed result from {cache_path}")
+            with open(cache_path, "rb") as f:
+                return pickle.load(f)
+        else:
+            # Otherwise, compute and save
+            print(f"[COMPUTE] Running prediction for stock {sid}, time {tid}")
+
+         # Timing starts here
+        start_time = time.time()
         X, y_true, time_ids, start_times = model.prepare_lstm_data(sid, tid)
         X_scaled = x_scaler.transform(X.reshape(-1, X.shape[-1])).reshape(X.shape)
         y_pred_scaled = lstm_model.predict(X_scaled, verbose=0)
         y_pred = y_scaler.inverse_transform(y_pred_scaled).ravel()
 
+        elapsed = time.time() - start_time
          # --- DEBUG PRINTS ---
         print("y_true range:", y_true.min(), y_true.max())
         print("y_pred range:", y_pred.min(), y_pred.max())
@@ -104,8 +119,18 @@ def server(input: Inputs):
         print("y_pred final sample:", y_pred[:5])
         print("----")
 
+        df = pd.DataFrame({"start_time": start_times, "y_true": y_true, "y_pred": y_pred})
+        df.attrs["inference_time"] = elapsed  # attach as metadata
 
-        return pd.DataFrame({"start_time": start_times, "y_true": y_true, "y_pred": y_pred})
+           # Save for future instant loading
+        os.makedirs("dashboard/predictions", exist_ok=True)
+        with open(cache_path, "wb") as f:
+            pickle.dump(df, f)
+        print(f"[CACHE] Saved result to {cache_path}")
+
+        return df
+
+
     @reactive.calc()
     def cached_predictions():
         return prediction_all()
@@ -114,15 +139,16 @@ def server(input: Inputs):
     def qlike():
         df = cached_predictions()
         return f"{qlike_loss(df['y_true'], df['y_pred']):.6f}"
-    @render.text
-    def mse():
-        df = cached_predictions()
-        return f"{mse_custom(df['y_true'].values, df['y_pred'].values):.6f}"
 
     @render.text
     def rmse():
         df = cached_predictions()
         return f"{rmse_custom(df['y_true'].values, df['y_pred'].values):.6f}"
+    
+    @render.text
+    def inference_time():
+        df = cached_predictions()
+        return f"{df.attrs['inference_time']:.4f} seconds"
 
 
 
