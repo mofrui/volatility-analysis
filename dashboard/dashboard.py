@@ -34,8 +34,18 @@ app_ui = ui.page_navbar(
     ui.card(
         ui.card_header("What This Dashboard Does"),
         ui.markdown("""
-        This interactive dashboard visualizes and predicts **short-term market volatility**
-        using high-frequency limit order book data. The predictions are generated using our final model: **LSTM**.
+       This interactive dashboard visualizes and predicts **short-term market volatility**
+        using high-frequency limit order book data.
+
+        The **“Volatility Forecast”** tab presents predictions generated using our final model: **LSTM**, 
+        along with evaluation metrics and actual vs predicted visualizations.
+
+        The **“Quoting Strategies”** tab gives quoting strategy suggestions based on predicted volatility 
+        and its relationship to bid-ask spreads. 
+
+        **Higher predicted volatility typically calls for wider spreads** to manage risk, 
+        while lower volatility allows for tighter spreads to stay competitive.
+
 
         **What You Can Do:**
         - Select a stock to view predicted vs actual volatility.
