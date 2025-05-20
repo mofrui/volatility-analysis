@@ -13,6 +13,19 @@ forecast_sidebar = ui.sidebar(
     ui.input_select("selected_stock_id_forecast", "Choose a Stock ID:", {50200: "50200: SPY XNAS", 104919: "104919: QQQ XNAS", 22771: "22771: NFLX XNAS"}, selected=50200),
     ui.input_select("selected_time_id_forecast", "Choose a Time ID:", {14: "14", 246:"246"}, selected=14),
     ui.markdown("**Note:** Each `time_id` represents one hour of trading data."),
+    ui.input_select(
+    "forecast_horizon",
+    "Show Predictions For:",
+    {   "full": "Full forecast",
+        10: "Next 10 seconds",
+        20: "Next 20 seconds",
+        30: "Next 30 seconds",
+        60: "Next 1 minute",
+        300: "Next 5 minutes"
+    },
+    selected="full"
+)
+
 
 
 )
@@ -182,10 +195,27 @@ def server(input: Inputs):
     def predict_plot():
         df = prediction_all()
         cutoff_sec = 1000  # fixed prediction start
+        raw_horizon = input.forecast_horizon()
+
 
         # Mask predictions before cutoff
         df.loc[df["start_time"] < cutoff_sec, "y_pred"] = float("nan")
 
+        # Convert only if not full
+        if raw_horizon == "full":
+            horizon = None
+        else:
+            horizon = int(raw_horizon)
+            end_cutoff = cutoff_sec + horizon
+
+        # Mask predictions before cutoff
+        df.loc[df["start_time"] < cutoff_sec, "y_pred"] = float("nan")
+
+        # Slice based on horizon
+        if horizon is not None:
+            df = df[(df["start_time"] >= cutoff_sec - 100) & (df["start_time"] <= end_cutoff)]
+        else:
+            df = df.copy()
         ax = sns.lineplot(x=df['start_time'], y=df['y_true'], label="Actual", linestyle="-", color="#3d5a80")
         sns.lineplot(x=df['start_time'], y=df['y_pred'], label="Predicted", linestyle="--", color="#ee6c4d", ax=ax)
 
