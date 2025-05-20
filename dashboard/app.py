@@ -12,7 +12,9 @@ import os
 forecast_sidebar = ui.sidebar(
     ui.input_select("selected_stock_id_forecast", "Choose a Stock ID:", {50200: "50200: SPY XNAS", 104919: "104919: QQQ XNAS", 22771: "22771: NFLX XNAS"}, selected=50200),
     ui.input_select("selected_time_id_forecast", "Choose a Time ID:", {14: "14", 246:"246"}, selected=14),
-    ui.markdown("**Note:** Each `time_id` represents one hour of trading data.")
+    ui.markdown("**Note:** Each `time_id` represents one hour of trading data."),
+
+
 )
 
 app_ui = ui.page_navbar(
@@ -57,17 +59,41 @@ app_ui = ui.page_navbar(
     ui.nav_panel("📊 Volatility Forecast",
         ui.layout_sidebar(
             forecast_sidebar,
-            ui.layout_columns(
-                ui.value_box(title="Q-like", value=ui.output_text("qlike")),
-                ui.value_box(title="RMSE", value=ui.output_text("rmse")),
-                ui.value_box(title="Inference Time", value=ui.output_text("inference_time")),
+            ui.div(
+                ui.div(  # Compact tab styling
+                    ui.navset_tab(
+                        ui.nav_panel("🔢 Metric Summary",
+                            ui.layout_columns(
+                                ui.value_box(title="Q-like", value=ui.output_text("qlike")),
+                                ui.value_box(title="RMSE", value=ui.output_text("rmse")),
+                                ui.value_box(title="Inference Time", value=ui.output_text("inference_time"))
+                            )
+                        ),
+                        ui.nav_panel("Metric Box Plot",
+                            ui.card(
+                                ui.card_header("Metric Comparison by Stock"),
+                                ui.input_radio_buttons(
+                                "metric_to_plot",
+                                label=None,
+                                choices=["RMSE", "QLIKE", "Inference Time (s)"],
+                                selected="RMSE",
+                                inline=True
+                            ),
+                                ui.output_plot("metric_box_plot")
+                            )
+                        )
+                    ),
+                    style="font-size: 0.8rem; margin-bottom: 0 rem; margin-top: 0 rem;"
+                ),
 
-            ),
-            ui.card(
-                ui.card_header("Actual vs Predicted Volatility"),
-                ui.output_plot("predict_plot")
+                ui.card(
+                    ui.card_header("Actual vs Predicted Volatility"),
+                    ui.output_plot("predict_plot")
+                ),
+                style="max-height: 85vh; overflow-y: auto; padding-right: 8px;"
             )
-        )
+
+            )
     ),
     title="Volatility Prediction Dashboard",
     fillable=True,
@@ -160,17 +186,70 @@ def server(input: Inputs):
         # Mask predictions before cutoff
         df.loc[df["start_time"] < cutoff_sec, "y_pred"] = float("nan")
 
-        ax = sns.lineplot(x=df['start_time'], y=df['y_true'], label="Actual", linestyle="-", color="blue")
-        sns.lineplot(x=df['start_time'], y=df['y_pred'], label="Predicted", linestyle="--", color="orange", ax=ax)
+        ax = sns.lineplot(x=df['start_time'], y=df['y_true'], label="Actual", linestyle="-", color="#3d5a80")
+        sns.lineplot(x=df['start_time'], y=df['y_pred'], label="Predicted", linestyle="--", color="#ee6c4d", ax=ax)
 
         # Draw vertical line at cutoff
-        ax.axvline(x=cutoff_sec, color='red', linestyle=':', label="Prediction Start")
+        ax.axvline(x=cutoff_sec, color='red', linestyle='-', label="Prediction Start")
         
         ax.set_title("Actual vs Predicted Volatility (Prediction begins at 1000s)")
         ax.set_xlabel("Seconds in Bucket")
         ax.set_ylabel("Realized Volatility")
         ax.legend()
 
+        return ax.figure
+    
+    @render.plot
+    def metric_box_plot():
+        stock_ids = {
+            50200: "SPY",
+            104919: "QQQ",
+            22771: "NFLX"
+        }
+        time_ids = [14, 246]  # Add more if you want
+        metric_name = input.metric_to_plot()
+        rows = []
+
+        for tid in time_ids:
+            for sid, name in stock_ids.items():
+                cache_path = f"dashboard/predictions/pred_{sid}_{tid}.pkl"
+                if os.path.exists(cache_path):
+                    with open(cache_path, "rb") as f:
+                        df = pickle.load(f)
+                else:
+                    X, y_true, time_ids_arr, start_times = model.prepare_lstm_data(sid, tid)
+                    X_scaled = x_scaler.transform(X.reshape(-1, X.shape[-1])).reshape(X.shape)
+                    y_pred_scaled = lstm_model.predict(X_scaled, verbose=0)
+                    y_pred = y_scaler.inverse_transform(y_pred_scaled).ravel()
+                    df = pd.DataFrame({"start_time": start_times, "y_true": y_true, "y_pred": y_pred})
+                    df.attrs["inference_time"] = time.time()
+
+                qlike = qlike_loss(df["y_true"], df["y_pred"])
+                rmse = rmse_custom(df["y_true"], df["y_pred"])
+                t = df.attrs.get("inference_time", 0)
+
+                rows.append({
+                    "Stock": name,
+                    "Metric": "QLIKE",
+                    "Value": qlike
+                })
+                rows.append({
+                    "Stock": name,
+                    "Metric": "RMSE",
+                    "Value": rmse
+                })
+                rows.append({
+                    "Stock": name,
+                    "Metric": "Inference Time (s)",
+                    "Value": t
+                })
+
+        df_plot = pd.DataFrame(rows)
+        selected_df = df_plot[df_plot["Metric"] == metric_name]
+
+
+        ax = sns.boxplot(data=selected_df, x="Stock", y="Value")
+        ax.set_title(f"{metric_name} Across Stocks (Lower = Better)" if "QLIKE" in metric_name or "RMSE" in metric_name else f"{metric_name} Across Stocks")
         return ax.figure
 
 
