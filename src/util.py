@@ -333,3 +333,43 @@ def out_of_sample_evaluation(model_path: str,
     }
 
     return val_df, metrics
+
+def compute_metrics_by_time_id(val_df: pd.DataFrame):
+    """
+    Compute MSE, RMSE, QLIKE, directional accuracy, and avg inference time for each time_id.
+    Returns a DataFrame indexed by time_id with columns [mse, rmse, qlike, dir_acc, avg_inf_time].
+    """
+    records = []
+    for tid, group in val_df.groupby('time_id'):
+        y_true = group['y_true'].values
+        y_pred = group['y_pred'].values
+        mse = np.mean((y_true - y_pred) ** 2)
+        rmse = np.sqrt(mse)
+        ql = qlike_loss(y_true, y_pred)
+        da = directional_accuracy(y_true, y_pred)
+        avg_time = group['inference_time'].mean() if 'inference_time' in group else np.nan
+        records.append({
+            'time_id': tid,
+            'mse': mse,
+            'rmse': rmse,
+            'qlike': ql,
+            'dir_acc': da,
+            'avg_inf_time': avg_time
+        })
+    return pd.DataFrame(records).set_index('time_id')
+    
+
+def plot_metrics_boxplot(metrics_df: pd.DataFrame):
+    """
+    Plot boxplots for each evaluation metric across time_ids.
+    Expects a DataFrame with columns ['mse','rmse','qlike','dir_acc'] and time_id index.
+    """
+    plt.figure(figsize=(12, 8))
+    metrics = ['mse','rmse','qlike','dir_acc']
+    for i, metric in enumerate(metrics, 1):
+        plt.subplot(2, 2, i)
+        plt.boxplot(metrics_df[metric].dropna(), vert=True, showfliers=True)
+        plt.title(metric.upper())
+        plt.grid(axis='y')
+    plt.tight_layout()
+    plt.show()
