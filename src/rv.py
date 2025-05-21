@@ -33,13 +33,11 @@ def ols(df: pd.DataFrame):
     """
     df = df.copy().sort_values(by=["time_id", "start_time"]).reset_index(drop=True)
 
-    # 1. 构造 HAR 特征
     df["rv_lag1"]  = df["realized_volatility"].shift(1)
     df["rv_lag5"]  = df["realized_volatility"].rolling(5).mean().shift(1)
     df["rv_lag22"] = df["realized_volatility"].rolling(22).mean().shift(1)
     df = df.dropna().reset_index(drop=True)
 
-    # 2. 按 time_id 做 80/20 划分
     unique_ids = sorted(df["time_id"].unique())
     split_idx  = int(len(unique_ids) * 0.8)
     train_ids, test_ids = unique_ids[:split_idx], unique_ids[split_idx:]
@@ -47,16 +45,13 @@ def ols(df: pd.DataFrame):
     train_df = df[df["time_id"].isin(train_ids)].reset_index(drop=True)
     test_df  = df[df["time_id"].isin(test_ids)].reset_index(drop=True)
 
-    # 3. 准备 X/y
     X_train = train_df[["rv_lag1", "rv_lag5", "rv_lag22"]].values
     y_train = train_df["realized_volatility"].values
     X_test  = test_df[ ["rv_lag1", "rv_lag5", "rv_lag22"]].values
     y_test  = test_df["realized_volatility"].values
 
-    # 4. 训练模型
     model = LinearRegression().fit(X_train, y_train)
 
-    # 5. 测试集逐样本预测并计时
     inference_times, y_pred = [], []
     for x in X_test:
         t0 = time.perf_counter()
@@ -66,8 +61,6 @@ def ols(df: pd.DataFrame):
     test_df["y_pred"]        = y_pred
     test_df["inference_time"]= inference_times
     
-
-    # 6. 评估
     mse  = mean_squared_error(y_test, y_pred)
     rmse = np.sqrt(mse)
     qlike = util.qlike_loss(y_test, np.array(y_pred))
@@ -81,7 +74,6 @@ def ols(df: pd.DataFrame):
     print(f"Directional Accuracy: {da:.4f}")
     print(f"Average inference time per sample: {avgt:.6f} seconds")
 
-    # 7. 保存模型
     save_regression_model(model, name="rv_ols")
 
     val_df = test_df[[
@@ -93,5 +85,69 @@ def ols(df: pd.DataFrame):
     ]].rename(columns={
         'realized_volatility': 'y_true'
     })
+
+    return model, val_df
+
+
+def wls(df: pd.DataFrame):
+    """
+    Train & evaluate HAR-RV using WLS with 80/20 time_id split,
+    returning the same val_df format as ols().
+    """
+    df = df.copy().sort_values(by=["time_id","start_time"]).reset_index(drop=True)
+    df["rv_lag1"]  = df["realized_volatility"].shift(1)
+    df["rv_lag5"]  = df["realized_volatility"].rolling(5).mean().shift(1)
+    df["rv_lag22"] = df["realized_volatility"].rolling(22).mean().shift(1)
+    df = df.dropna().reset_index(drop=True)
+
+    unique_ids = sorted(df["time_id"].unique())
+    split_idx  = int(len(unique_ids) * 0.8)
+    train_ids, test_ids = unique_ids[:split_idx], unique_ids[split_idx:]
+
+    train_df = df[df["time_id"].isin(train_ids)].reset_index(drop=True)
+    test_df  = df[df["time_id"].isin(test_ids)].reset_index(drop=True)
+
+    time_ids_out  = test_df["time_id"].values
+    starts_out    = test_df["start_time"].values
+    y_test        = test_df["realized_volatility"].values
+
+    X_train = train_df[["rv_lag1","rv_lag5","rv_lag22"]]
+    y_train = train_df["realized_volatility"]
+    X_test  = test_df[ ["rv_lag1","rv_lag5","rv_lag22"]]
+    X_train_const = sm.add_constant(X_train)
+    X_test_const  = sm.add_constant(X_test)
+
+    weights = 1.0/(y_train**2 + 1e-8)
+    model   = sm.WLS(y_train, X_train_const, weights=weights).fit()
+
+    inference_times = []
+    y_pred = []
+    for i in range(len(X_test_const)):
+        row = X_test_const.iloc[[i]]
+        t0  = time.perf_counter()
+        pred = model.predict(row).values[0]
+        inference_times.append(time.perf_counter() - t0)
+        y_pred.append(pred)
+    y_pred = np.array(y_pred)
+
+    val_df = pd.DataFrame({
+        "time_id":        time_ids_out,
+        "start_time":     starts_out,
+        "y_true":         y_test,
+        "y_pred":         y_pred,
+        "inference_time": inference_times
+    })
+
+    mse = mean_squared_error(y_test, y_pred)
+    rmse = np.sqrt(mse)
+    qlike = util.qlike_loss(y_test, y_pred)
+    da = util.directional_accuracy(y_test, y_pred)
+    print("=== HAR-RV WLS Baseline Evaluation ===")
+    print(f"MSE: {mse:.8f}")
+    print(f"RMSE: {rmse:.8f}")
+    print(f"QLIKE: {qlike:.4f}")
+    print(f"Directional Accuracy: {da:.4f}")
+
+    save_regression_model(model, name="har_wls")
 
     return model, val_df
