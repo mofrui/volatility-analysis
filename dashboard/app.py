@@ -7,6 +7,7 @@ from model import load_model, qlike_loss, mse_custom, rmse_custom
 import pickle
 import time
 import os
+import numpy as np
 
 # --- UI: Sidebar & Panels ---
 forecast_sidebar = ui.sidebar(
@@ -129,8 +130,12 @@ app_ui = ui.page_navbar(
 def server(input: Inputs):
     prediction_cache = {}
     # Load model + scalers only once
-    model_path = "out/lstm/advanced.h5"
-    scaler_path = "out/lstm/advanced_scalers.pkl"
+    # model_path = "out/lstm/advanced.h5"
+    # scaler_path = "out/lstm/advanced_scalers.pkl"
+    model_path = "out/lstm/moe_staged_full.h5"
+    scaler_path = "out/lstm/moe_staged_scalers_full.pkl"
+
+
     lstm_model = load_model(model_path)
     with open(scaler_path, "rb") as f:
         scalers = pickle.load(f)
@@ -155,8 +160,23 @@ def server(input: Inputs):
          # Timing starts here
         start_time = time.time()
         X, y_true, time_ids, start_times = model.prepare_lstm_data(sid, tid)
-        X_scaled = x_scaler.transform(X.reshape(-1, X.shape[-1])).reshape(X.shape)
-        y_pred_scaled = lstm_model.predict(X_scaled, verbose=0)
+        X_scaled = x_scaler.transform(X.reshape(-1, X.shape[-1])).reshape(X.shape)  
+        y_pred_outputs = lstm_model.predict(X_scaled, verbose=0)
+
+        # If the model has multiple outputs, use the first (volatility)
+        if isinstance(y_pred_outputs, list):
+            y_pred_scaled = y_pred_outputs[0]
+        else:
+            y_pred_scaled = y_pred_outputs
+
+        print("Prediction outputs type:", type(y_pred_outputs))
+        print("Number of outputs:", len(y_pred_outputs) if isinstance(y_pred_outputs, list) else 1)
+        print("Shape of first output:", np.array(y_pred_scaled).shape)
+
+        y_pred_scaled = y_pred_scaled.reshape(-1, 1)
+
+
+        y_pred_scaled = y_pred_scaled.reshape(-1, 1)  # Fix the 3D -> 2D shape
         y_pred = y_scaler.inverse_transform(y_pred_scaled).ravel()
 
         elapsed = time.time() - start_time
