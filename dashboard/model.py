@@ -5,7 +5,11 @@ import pickle
 import os
 from tensorflow.keras.models import load_model as keras_load_model
 
-# --- Load Model ---
+# # --- Load Model ---
+# def load_model(model_path, custom_objects=None):
+#     return keras_load_model(model_path, compile=False)
+
+
 def load_model(model_path, custom_objects=None):
     return keras_load_model(model_path, compile=False)
 

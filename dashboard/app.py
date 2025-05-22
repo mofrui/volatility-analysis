@@ -7,12 +7,23 @@ from model import load_model, qlike_loss, mse_custom, rmse_custom
 import pickle
 import time
 import os
+import numpy as np
 
 # --- UI: Sidebar & Panels ---
 forecast_sidebar = ui.sidebar(
     ui.input_select("selected_stock_id_forecast", "Choose a Stock ID:", {50200: "50200: SPY XNAS", 104919: "104919: QQQ XNAS", 22771: "22771: NFLX XNAS"}, selected=50200),
     ui.input_select("selected_time_id_forecast", "Choose a Time ID:", {14: "14", 246:"246"}, selected=14),
     ui.markdown("**Note:** Each `time_id` represents one hour of trading data."),
+    ui.input_select(
+    "forecast_horizon",
+    "Show Predictions For:",
+    {   "full": "Full forecast",
+        30: "Next 30 seconds",
+        60: "Next 1 minute",
+    },
+    selected="full"
+)
+
 
 
 )
@@ -54,7 +65,7 @@ app_ui = ui.page_navbar(
         """)
     ),
     {"class": "bslib-page-dashboard"},
-),
+    ),
 
     ui.nav_panel("📊 Volatility Forecast",
         ui.layout_sidebar(
@@ -95,6 +106,21 @@ app_ui = ui.page_navbar(
 
             )
     ),
+    ui.nav_panel(
+    "📊 Quoting Strategies",
+    ui.layout_sidebar(
+        ui.sidebar(  # <- REQUIRED: this is the actual sidebar (even if empty or minimal)
+            ui.markdown("Use the predicted volatility below to guide quoting decisions.")
+        ),
+        ui.card(  # <- main content area
+            ui.card_header("Volatility-Informed Quoting Strategy"),
+            ui.output_plot("display_prediction")
+        )
+    ),
+),
+
+
+   
     title="Volatility Prediction Dashboard",
     fillable=True,
     id="tabs"
@@ -104,8 +130,12 @@ app_ui = ui.page_navbar(
 def server(input: Inputs):
     prediction_cache = {}
     # Load model + scalers only once
-    model_path = "out/lstm/advanced.h5"
-    scaler_path = "out/lstm/advanced_scalers.pkl"
+    # model_path = "out/lstm/advanced.h5"
+    # scaler_path = "out/lstm/advanced_scalers.pkl"
+    model_path = "out/lstm/moe_staged_full.h5"
+    scaler_path = "out/lstm/moe_staged_scalers_full.pkl"
+
+
     lstm_model = load_model(model_path)
     with open(scaler_path, "rb") as f:
         scalers = pickle.load(f)
@@ -130,8 +160,23 @@ def server(input: Inputs):
          # Timing starts here
         start_time = time.time()
         X, y_true, time_ids, start_times = model.prepare_lstm_data(sid, tid)
-        X_scaled = x_scaler.transform(X.reshape(-1, X.shape[-1])).reshape(X.shape)
-        y_pred_scaled = lstm_model.predict(X_scaled, verbose=0)
+        X_scaled = x_scaler.transform(X.reshape(-1, X.shape[-1])).reshape(X.shape)  
+        y_pred_outputs = lstm_model.predict(X_scaled, verbose=0)
+
+        # If the model has multiple outputs, use the first (volatility)
+        if isinstance(y_pred_outputs, list):
+            y_pred_scaled = y_pred_outputs[0]
+        else:
+            y_pred_scaled = y_pred_outputs
+
+        print("Prediction outputs type:", type(y_pred_outputs))
+        print("Number of outputs:", len(y_pred_outputs) if isinstance(y_pred_outputs, list) else 1)
+        print("Shape of first output:", np.array(y_pred_scaled).shape)
+
+        y_pred_scaled = y_pred_scaled.reshape(-1, 1)
+
+
+        y_pred_scaled = y_pred_scaled.reshape(-1, 1)  # Fix the 3D -> 2D shape
         y_pred = y_scaler.inverse_transform(y_pred_scaled).ravel()
 
         elapsed = time.time() - start_time
@@ -182,10 +227,27 @@ def server(input: Inputs):
     def predict_plot():
         df = prediction_all()
         cutoff_sec = 1000  # fixed prediction start
+        raw_horizon = input.forecast_horizon()
+
 
         # Mask predictions before cutoff
         df.loc[df["start_time"] < cutoff_sec, "y_pred"] = float("nan")
 
+        # Convert only if not full
+        if raw_horizon == "full":
+            horizon = None
+        else:
+            horizon = int(raw_horizon)
+            end_cutoff = cutoff_sec + horizon
+
+        # Mask predictions before cutoff
+        df.loc[df["start_time"] < cutoff_sec, "y_pred"] = float("nan")
+
+        # Slice based on horizon
+        if horizon is not None:
+            df = df[(df["start_time"] >= cutoff_sec - 100) & (df["start_time"] <= end_cutoff)]
+        else:
+            df = df.copy()
         ax = sns.lineplot(x=df['start_time'], y=df['y_true'], label="Actual", linestyle="-", color="#3d5a80")
         sns.lineplot(x=df['start_time'], y=df['y_pred'], label="Predicted", linestyle="--", color="#ee6c4d", ax=ax)
 
