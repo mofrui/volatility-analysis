@@ -17,11 +17,8 @@ forecast_sidebar = ui.sidebar(
     "forecast_horizon",
     "Show Predictions For:",
     {   "full": "Full forecast",
-        10: "Next 10 seconds",
-        20: "Next 20 seconds",
         30: "Next 30 seconds",
         60: "Next 1 minute",
-        300: "Next 5 minutes"
     },
     selected="full"
 )
@@ -67,7 +64,7 @@ app_ui = ui.page_navbar(
         """)
     ),
     {"class": "bslib-page-dashboard"},
-),
+    ),
 
     ui.nav_panel("📊 Volatility Forecast",
         ui.layout_sidebar(
@@ -108,6 +105,21 @@ app_ui = ui.page_navbar(
 
             )
     ),
+    ui.nav_panel(
+    "📊 Quoting Strategies",
+    ui.layout_sidebar(
+        ui.sidebar(  # <- REQUIRED: this is the actual sidebar (even if empty or minimal)
+            ui.markdown("Use the predicted volatility below to guide quoting decisions.")
+        ),
+        ui.card(  # <- main content area
+            ui.card_header("Volatility-Informed Quoting Strategy"),
+            ui.output_plot("display_prediction")
+        )
+    ),
+),
+
+
+   
     title="Volatility Prediction Dashboard",
     fillable=True,
     id="tabs"
