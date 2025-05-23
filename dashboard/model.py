@@ -15,7 +15,7 @@ def load_model(model_path, custom_objects=None):
 
 # --- Load Preprocessed Data ---
 def prepare_lstm_data(stock_id, time_id):
-    file_path = f"dashboard/data/dashboard_lstm_{stock_id}_tid{time_id}.pkl"
+    file_path = f"dashboard/data/{stock_id}_tid{time_id}.pkl"
     df = pd.read_pickle(file_path)
 
     X = np.stack(df["X"].values)
@@ -26,7 +26,6 @@ def prepare_lstm_data(stock_id, time_id):
     return X, y, time_ids, start_times
 
 # --- Evaluation Metrics ---
-
 
 def qlike_loss(y_true, y_pred):
     var_true = y_true ** 2

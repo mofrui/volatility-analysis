@@ -12,12 +12,13 @@ import numpy as np
 # --- UI: Sidebar & Panels ---
 forecast_sidebar = ui.sidebar(
     ui.input_select("selected_stock_id_forecast", "Choose a Stock ID:", {50200: "50200: SPY XNAS", 104919: "104919: QQQ XNAS", 22771: "22771: NFLX XNAS"}, selected=50200),
-    ui.input_select("selected_time_id_forecast", "Choose a Time ID:", {14: "14", 246:"246"}, selected=14),
+    ui.input_select("selected_time_id_forecast", "Choose a Time ID:", {14: "14", 46:"46", 54:"54", 246:"246"}, selected=14),
     ui.markdown("**Note:** Each `time_id` represents one hour of trading data."),
     ui.input_select(
     "forecast_horizon",
     "Show Predictions For:",
     {   "full": "Full forecast",
+        "from_cutoff": "From prediction start only",
         30: "Next 30 seconds",
         60: "Next 1 minute",
     },
@@ -157,7 +158,7 @@ def server(input: Inputs):
             # Otherwise, compute and save
             print(f"[COMPUTE] Running prediction for stock {sid}, time {tid}")
 
-         # Timing starts here
+         # start calc Total computation time (data + scaling + prediction)
         start_time = time.time()
         X, y_true, time_ids, start_times = model.prepare_lstm_data(sid, tid)
         X_scaled = x_scaler.transform(X.reshape(-1, X.shape[-1])).reshape(X.shape)  
@@ -226,40 +227,41 @@ def server(input: Inputs):
     @render.plot
     def predict_plot():
         df = prediction_all()
-        cutoff_sec = 1000  # fixed prediction start
+        cutoff_sec = 1650
         raw_horizon = input.forecast_horizon()
 
-
-        # Mask predictions before cutoff
-        df.loc[df["start_time"] < cutoff_sec, "y_pred"] = float("nan")
-
-        # Convert only if not full
+        # Define prediction window
         if raw_horizon == "full":
-            horizon = None
+            df_plot = df.copy()
+            end_cutoff = df["start_time"].max()
+        elif raw_horizon == "from_cutoff":
+            df_plot = df[df["start_time"] >= cutoff_sec].copy()
+            end_cutoff = df_plot["start_time"].max()
         else:
             horizon = int(raw_horizon)
             end_cutoff = cutoff_sec + horizon
+            df_plot = df[(df["start_time"] >= cutoff_sec - 100) & (df["start_time"] <= end_cutoff)].copy()
 
         # Mask predictions before cutoff
-        df.loc[df["start_time"] < cutoff_sec, "y_pred"] = float("nan")
+        df_plot.loc[df_plot["start_time"] < cutoff_sec, "y_pred"] = float("nan")
 
-        # Slice based on horizon
-        if horizon is not None:
-            df = df[(df["start_time"] >= cutoff_sec - 100) & (df["start_time"] <= end_cutoff)]
-        else:
-            df = df.copy()
-        ax = sns.lineplot(x=df['start_time'], y=df['y_true'], label="Actual", linestyle="-", color="#3d5a80")
-        sns.lineplot(x=df['start_time'], y=df['y_pred'], label="Predicted", linestyle="--", color="#ee6c4d", ax=ax)
-
-        # Draw vertical line at cutoff
+        # Plot
+        ax = sns.lineplot(x=df_plot['start_time'], y=df_plot['y_true'], label="Actual", color="#3d5a80")
+        sns.lineplot(x=df_plot['start_time'], y=df_plot['y_pred'], label="Predicted", linestyle="--", color="#ee6c4d", ax=ax)
         ax.axvline(x=cutoff_sec, color='red', linestyle='-', label="Prediction Start")
-        
-        ax.set_title("Actual vs Predicted Volatility (Prediction begins at 1000s)")
+
+        # Overlay for 30s & 1min windows
+        ax.axvspan(cutoff_sec, cutoff_sec + 30, color="skyblue", alpha=0.15, label="Next 30s")
+        ax.axvspan(cutoff_sec + 30, cutoff_sec + 60, color="orange", alpha=0.12, label="Next 1min")
+
+        ax.set_title(f"Actual vs Predicted Volatility (Prediction begins at {cutoff_sec}s)")
         ax.set_xlabel("Seconds in Bucket")
         ax.set_ylabel("Realized Volatility")
         ax.legend()
 
         return ax.figure
+
+
     
     @render.plot
     def metric_box_plot():
