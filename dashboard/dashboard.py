@@ -1,5 +1,4 @@
 from shiny import App, Inputs, reactive, render, ui
-from faicons import icon_svg
 import seaborn as sns
 import statsmodels.api as sm
 import model
