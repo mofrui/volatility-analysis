@@ -12,7 +12,7 @@ import numpy as np
 
 # --- UI: Sidebar & Panels ---
 forecast_sidebar = ui.sidebar(
-    ui.input_select("selected_stock_id_forecast", "Choose a Stock ID:", {50200: "50200: SPY XNAS", 104919: "104919: QQQ XNAS", 22771: "22771: NFLX XNAS"}, selected=50200),
+    ui.input_select("selected_stock_id_forecast", "Choose a Stock ID:", {50200: "50200: SPY XNAS (Training Stock)", 104919: "104919: QQQ XNAS (Most Correlated)", 22771: "22771: NFLX XNAS (Least Correlated)"}, selected=50200),
     ui.input_select("selected_time_id_forecast", "Choose a Time ID:", {14: "14", 46:"46", 246:"246"}, selected=14),
     ui.markdown("**Note:** Each `time_id` represents one hour of trading data."),
     ui.input_select(
@@ -351,7 +351,16 @@ def server(input: Inputs):
         best_stock = stock_means.idxmin()
 
         # Add emoji to name
-        selected_df["Label"] = selected_df["Stock"].apply(lambda s: f"★  {s}" if s == best_stock else s)
+        selected_df["Label"] = selected_df["Stock"].apply(
+            lambda s: (
+                f"★  SPY\n(Training)" if s == best_stock and s == "SPY" else
+                f"★  QQQ\n(Most Correlated)" if s == best_stock and s == "QQQ" else
+                f"★  NFLX\n(Least Correlated)" if s == best_stock and s == "NFLX" else
+                "SPY\n(Training)" if s == "SPY" else
+                "QQQ\n(Most Correlated)" if s == "QQQ" else
+                "NFLX\n(Least Correlated)"
+            )
+        )
 
         # Define custom color palette
         unique_labels = selected_df["Label"].unique()
