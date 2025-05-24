@@ -286,7 +286,13 @@ def server(input: Inputs):
         ax.set_title(f"Actual vs Predicted Volatility (Prediction begins at {cutoff_sec}s)")
         ax.set_xlabel("Seconds in Bucket")
         ax.set_ylabel("Realized Volatility")
-        ax.legend()
+        ax.legend(
+            loc="upper left",           # Always top-right inside the plot
+            bbox_to_anchor=(0, 1),       # Fine-tune anchor position (1,1) = top-right corner
+            frameon=True,
+            fontsize="small"
+        )
+
 
         return ax.figure
 
