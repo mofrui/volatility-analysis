@@ -97,7 +97,7 @@ app_ui = ui.page_navbar(
                                 ui.input_radio_buttons(
                                 "metric_to_plot",
                                 label=None,
-                                choices=["RMSE", "QLIKE", "Inference Time (s)"],
+                                choices=["RMSE", "QLIKE"],
                                 selected="RMSE",
                                 inline=True
                             ),  
@@ -325,7 +325,7 @@ def server(input: Inputs):
 
                 qlike = qlike_loss(df["y_true"], df["y_pred"])
                 rmse = rmse_custom(df["y_true"], df["y_pred"])
-                t = df.attrs.get("inference_time", 0)
+                
 
                 rows.append({
                     "Stock": name,
@@ -336,11 +336,6 @@ def server(input: Inputs):
                     "Stock": name,
                     "Metric": "RMSE",
                     "Value": rmse
-                })
-                rows.append({
-                    "Stock": name,
-                    "Metric": "Inference Time (s)",
-                    "Value": t
                 })
 
         df_plot = pd.DataFrame(rows)
