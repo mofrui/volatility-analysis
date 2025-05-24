@@ -9,6 +9,7 @@ import time
 import os
 import numpy as np
 
+
 # --- UI: Sidebar & Panels ---
 forecast_sidebar = ui.sidebar(
     ui.input_select("selected_stock_id_forecast", "Choose a Stock ID:", {50200: "50200: SPY XNAS", 104919: "104919: QQQ XNAS", 22771: "22771: NFLX XNAS"}, selected=50200),
@@ -18,9 +19,7 @@ forecast_sidebar = ui.sidebar(
     "forecast_horizon",
     "Show Predictions For:",
     {   "full": "Full forecast",
-        "from_cutoff": "From prediction start only",
-        30: "Next 30 seconds",
-        60: "Next 1 minute",
+        "from_cutoff": "🔍 Zoomed Forecast"
     },
     selected="full"
 )
@@ -90,7 +89,8 @@ app_ui = ui.page_navbar(
                                 choices=["RMSE", "QLIKE", "Inference Time (s)"],
                                 selected="RMSE",
                                 inline=True
-                            ),
+                            ),  
+                                ui.markdown("This box plot shows overall performance (e.g., RMSE, QLIKE) across multiple `time_id`s for each stock."),
                                 ui.output_plot("metric_box_plot")
                             )
                         )
@@ -100,7 +100,19 @@ app_ui = ui.page_navbar(
 
                 ui.card(
                     ui.card_header("Actual vs Predicted Volatility"),
+                    ui.input_radio_buttons(
+                    "highlight_range",
+                    "Highlight Window:",
+                    choices={
+                        "none": "No highlight",
+                        "30": "Next 30 seconds",
+                        "60": "Next 1 minute"
+                    },
+                    selected="none",
+                    inline=True
+                    ), 
                     ui.output_plot("predict_plot")
+
                 ),
                 style="max-height: 85vh; overflow-y: auto; padding-right: 8px;"
             )
@@ -131,8 +143,6 @@ app_ui = ui.page_navbar(
 def server(input: Inputs):
     prediction_cache = {}
     # Load model + scalers only once
-    # model_path = "out/lstm/advanced.h5"
-    # scaler_path = "out/lstm/advanced_scalers.pkl"
     model_path = "out/lstm/moe_staged_full.h5"
     scaler_path = "out/lstm/moe_staged_scalers_full.pkl"
 
@@ -227,7 +237,18 @@ def server(input: Inputs):
     @render.plot
     def predict_plot():
         df = prediction_all()
-        cutoff_sec = 1650
+        tid = input.selected_time_id_forecast()
+
+        # Define custom cutoff point per time_id
+        cutoff_map = {
+            14: 2230,
+            46: 1450,
+            54: 1600,
+            246: 1700,
+            # Add more if needed
+        }
+        cutoff_sec = cutoff_map.get(int(tid), 1000)  # fallback if not listed
+
         raw_horizon = input.forecast_horizon()
 
         # Define prediction window
@@ -235,8 +256,13 @@ def server(input: Inputs):
             df_plot = df.copy()
             end_cutoff = df["start_time"].max()
         elif raw_horizon == "from_cutoff":
-            df_plot = df[df["start_time"] >= cutoff_sec].copy()
-            end_cutoff = df_plot["start_time"].max()
+            start_zoom = (cutoff_sec // 500) * 500
+            # df_plot = df[df["start_time"] >= start_zoom].copy()
+            # end_cutoff = df_plot["start_time"].max()
+
+            end_zoom = ((cutoff_sec + 500) // 500) * 500  # pad to next 500 boundary
+            df_plot = df[(df["start_time"] >= start_zoom) & (df["start_time"] <= end_zoom)].copy()
+            end_cutoff = end_zoom
         else:
             horizon = int(raw_horizon)
             end_cutoff = cutoff_sec + horizon
@@ -251,8 +277,12 @@ def server(input: Inputs):
         ax.axvline(x=cutoff_sec, color='red', linestyle='-', label="Prediction Start")
 
         # Overlay for 30s & 1min windows
-        ax.axvspan(cutoff_sec, cutoff_sec + 30, color="skyblue", alpha=0.15, label="Next 30s")
-        ax.axvspan(cutoff_sec + 30, cutoff_sec + 60, color="orange", alpha=0.12, label="Next 1min")
+        highlight = input.highlight_range()
+
+        if highlight == "30":
+            ax.axvspan(cutoff_sec, cutoff_sec + 30, color="skyblue", alpha=0.15, label="Next 30s")
+        elif highlight == "60":
+            ax.axvspan(cutoff_sec, cutoff_sec + 60, color="orange", alpha=0.12, label="Next 1min")
 
         ax.set_title(f"Actual vs Predicted Volatility (Prediction begins at {cutoff_sec}s)")
         ax.set_xlabel("Seconds in Bucket")
@@ -270,7 +300,7 @@ def server(input: Inputs):
             104919: "QQQ",
             22771: "NFLX"
         }
-        time_ids = [14, 246]  # Add more if you want
+        time_ids = [14, 246, 54, 46]  # Add more if you want
         metric_name = input.metric_to_plot()
         rows = []
 
@@ -311,8 +341,24 @@ def server(input: Inputs):
         df_plot = pd.DataFrame(rows)
         selected_df = df_plot[df_plot["Metric"] == metric_name]
 
+         # Highlight best performer (lowest value)
+        stock_means = selected_df.groupby("Stock")["Value"].mean()
+        best_stock = stock_means.idxmin()
 
-        ax = sns.boxplot(data=selected_df, x="Stock", y="Value")
+        # Add emoji to name
+        selected_df["Label"] = selected_df["Stock"].apply(lambda s: f"★  {s}" if s == best_stock else s)
+
+        # Define custom color palette
+        unique_labels = selected_df["Label"].unique()
+        highlight_color = "#80f085"  
+        default_color = "#5a84ba"    
+        palette = {
+            label: (highlight_color if "★" in label else default_color)
+            for label in unique_labels
+        }
+
+        # Plot with custom label column
+        ax = sns.boxplot(data=selected_df, x="Label", y="Value", palette=palette)
         ax.set_title(f"{metric_name} Across Stocks (Lower = Better)" if "QLIKE" in metric_name or "RMSE" in metric_name else f"{metric_name} Across Stocks")
         return ax.figure
 
