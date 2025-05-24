@@ -29,6 +29,12 @@ bash install.sh
 > based on folder that we are gonna submit - report, scritps to generate report, dashboard
 
 
+## Running dashboard 
+From project root, run the following command
+```bash
+shiny run --reload dashboard/app.py  
+```
+
 
 
 ## Literatures
