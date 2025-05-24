@@ -281,6 +281,9 @@ def out_of_sample_evaluation(model_path: str,
     """
     # 1. load model & scalers
     model = load_model(model_path, compile=False)
+    if isinstance(model, list):
+        print(f"[Warning] Model is a list, using the last model in the list.")
+        model = model[-1]
     with open(scaler_path, 'rb') as f:
         scalers = pickle.load(f)
     x_scaler = scalers['x_scaler']
@@ -302,7 +305,11 @@ def out_of_sample_evaluation(model_path: str,
     preds_s = []
     for window in X_scaled:
         t0 = time.perf_counter()
-        p_s = model.predict(window[np.newaxis, ...], verbose=0).ravel()[0]
+        pred_outputs = model.predict(window[np.newaxis, ...], verbose=0)
+        if isinstance(pred_outputs, list):
+            p_s = pred_outputs[0].ravel()[0]
+        else:
+            p_s = pred_outputs.ravel()[0]
         inference_times.append(time.perf_counter() - t0)
         preds_s.append(p_s)
     preds_s = np.array(preds_s)
@@ -373,3 +380,77 @@ def plot_metrics_boxplot(metrics_df: pd.DataFrame):
         plt.grid(axis='y')
     plt.tight_layout()
     plt.show()
+
+
+import pandas as pd
+import numpy as np
+import pickle
+import time
+from sklearn.metrics import mean_squared_error
+import statsmodels.api as sm
+
+def predict_with_har_wls(rolling_df: pd.DataFrame,
+                         model_path: str = "rv/har_wls.pkl"):
+    """
+    Predict realized volatility using a pre-trained HAR-WLS model.
+    
+    Parameters:
+        rolling_df (pd.DataFrame): Input features including realized_volatility.
+        model_path (str): Path to the saved WLS model (pickle).
+    
+    Returns:
+        val_df (pd.DataFrame): ['time_id', 'start_time', 'y_true', 'y_pred', 'inference_time']
+        metrics (dict): mse, rmse, qlike, directional_accuracy, avg_inference_time
+    """
+    df = rolling_df.copy().sort_values(by=["time_id", "start_time"]).reset_index(drop=True)
+    
+    # Recompute HAR features
+    df["rv_lag1"]  = df["realized_volatility"].shift(1)
+    df["rv_lag5"]  = df["realized_volatility"].rolling(5).mean().shift(1)
+    df["rv_lag22"] = df["realized_volatility"].rolling(22).mean().shift(1)
+    df = df.dropna().reset_index(drop=True)
+
+    X_test = df[["rv_lag1", "rv_lag5", "rv_lag22"]]
+    y_test = df["realized_volatility"].values
+    X_test_const = sm.add_constant(X_test)
+
+    # Load model
+    with open(model_path, "rb") as f:
+        model = pickle.load(f)
+
+    # Predict
+    y_pred = []
+    inference_times = []
+    for i in range(len(X_test_const)):
+        row = X_test_const.iloc[[i]]
+        t0 = time.perf_counter()
+        pred = model.predict(row).values[0]
+        inference_times.append(time.perf_counter() - t0)
+        y_pred.append(pred)
+    y_pred = np.array(y_pred)
+
+    # Assemble val_df
+    val_df = pd.DataFrame({
+        "time_id":        df["time_id"].values,
+        "start_time":     df["start_time"].values,
+        "y_true":         y_test,
+        "y_pred":         y_pred,
+        "inference_time": inference_times
+    })
+
+    # Metrics
+    mse = mean_squared_error(y_test, y_pred)
+    rmse = np.sqrt(mse)
+    qlike = qlike_loss(y_test, y_pred)
+    da = directional_accuracy(y_test, y_pred)
+    avg_time = np.mean(inference_times)
+
+    metrics = {
+        "mse": mse,
+        "rmse": rmse,
+        "qlike": qlike,
+        "directional_accuracy": da,
+        "avg_inference_time": avg_time
+    }
+
+    return val_df, metrics

@@ -40,9 +40,16 @@ from tensorflow.keras.regularizers import l2
 from sklearn.preprocessing import StandardScaler
 
 
+import random
+
 # Local modules
 import src.util as util
 
+
+SEED = 3888
+np.random.seed(SEED)
+random.seed(SEED)
+tf.random.set_seed(SEED)
 
 def baseline(snapshot_df: pd.DataFrame,
                     basic_features: list = ['wap', 'log_return'],
@@ -520,7 +527,7 @@ def baseline_moe_spike(
                  'spike': 'accuracy'}
     )
 
-    total_train_steps = steps * epochs
+    total_train_steps = steps
     warmup_steps = int(0.1 * total_train_steps)
     warmup_cb = WarmUp(warmup_steps, learning_rate)
     ckpt = ModelCheckpoint(f'{model_name}.h5', save_best_only=True,
@@ -691,7 +698,7 @@ def moe_spike_staged(
         }
     )
 
-    warmup_steps_stage1 = steps * (epochs//2)
+    warmup_steps_stage1 = steps
     warmup1 = WarmUp(warmup_steps_stage1, learning_rate)
     ckpt1 = ModelCheckpoint(f'{model_name}_stage1.h5', save_best_only=True,
                             monitor='val_vol_loss', mode='min')
@@ -710,7 +717,7 @@ def moe_spike_staged(
                   loss_weights={'vol':1.0,'spike':0.5},
                   metrics={'vol':tf.keras.metrics.RootMeanSquaredError(name='rmse'),'spike':'accuracy'})
 
-    warmup_steps_stage2 = steps * (epochs//2)
+    warmup_steps_stage2 = steps
     warmup2 = WarmUp(warmup_steps_stage2, learning_rate)
     ckpt2 = ModelCheckpoint(f'{model_name}.h5', save_best_only=True,
                             monitor='val_vol_loss', mode='min')
