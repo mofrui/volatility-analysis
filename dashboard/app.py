@@ -13,16 +13,27 @@ import numpy as np
 # --- UI: Sidebar & Panels ---
 forecast_sidebar = ui.sidebar(
     ui.input_select("selected_stock_id_forecast", "Choose a Stock ID:", {50200: "50200: SPY XNAS", 104919: "104919: QQQ XNAS", 22771: "22771: NFLX XNAS"}, selected=50200),
-    ui.input_select("selected_time_id_forecast", "Choose a Time ID:", {14: "14", 46:"46", 54:"54", 246:"246"}, selected=14),
+    ui.input_select("selected_time_id_forecast", "Choose a Time ID:", {14: "14", 46:"46", 246:"246"}, selected=14),
     ui.markdown("**Note:** Each `time_id` represents one hour of trading data."),
     ui.input_select(
     "forecast_horizon",
     "Show Predictions For:",
-    {   "full": "Full forecast",
+    {   "full": "Full horizon",
         "from_cutoff": "🔍 Zoomed Forecast"
     },
-    selected="full"
-)
+    selected="from_cutoff"
+    ),
+    ui.input_radio_buttons(
+        "highlight_range",
+        "Highlight Window:",
+        choices={
+            "none": "No highlight",
+            "30": "Next 30 seconds",
+            "60": "Next 1 minute"
+        },
+        selected="60",
+        inline=True
+    ), 
 
 
 
@@ -100,17 +111,6 @@ app_ui = ui.page_navbar(
 
                 ui.card(
                     ui.card_header("Actual vs Predicted Volatility"),
-                    ui.input_radio_buttons(
-                    "highlight_range",
-                    "Highlight Window:",
-                    choices={
-                        "none": "No highlight",
-                        "30": "Next 30 seconds",
-                        "60": "Next 1 minute"
-                    },
-                    selected="none",
-                    inline=True
-                    ), 
                     ui.output_plot("predict_plot")
 
                 ),
@@ -242,9 +242,8 @@ def server(input: Inputs):
         # Define custom cutoff point per time_id
         cutoff_map = {
             14: 2230,
-            46: 1450,
-            54: 1600,
-            246: 1700,
+            46: 2870,
+            246: 1080,
             # Add more if needed
         }
         cutoff_sec = cutoff_map.get(int(tid), 1000)  # fallback if not listed
@@ -300,7 +299,7 @@ def server(input: Inputs):
             104919: "QQQ",
             22771: "NFLX"
         }
-        time_ids = [14, 246, 54, 46]  # Add more if you want
+        time_ids = [14, 246, 46]  # Add more if you want
         metric_name = input.metric_to_plot()
         rows = []
 
