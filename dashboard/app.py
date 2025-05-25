@@ -102,7 +102,7 @@ app_ui = ui.page_navbar(
                                 selected="RMSE",
                                 inline=True
                             ),  
-                                ui.markdown("This boxplot shows the overall performance across the `time_id`s in the dashboard(14, 46, 246) for each stock"),
+                                ui.markdown("This boxplot shows the overall performance across the `time_id`s on the dashboard(14, 46, 246) for each stock"),
                                 ui.output_plot("metric_box_plot")
                             )
                         )
@@ -129,6 +129,10 @@ app_ui = ui.page_navbar(
                              104919: "104919: QQQ XNAS"
                          }, selected=50200),
                          ui.input_numeric("spread_time_id", "Enter Time ID:", value=14, min=0),
+                        ui.div(
+                            ui.output_text("quote_error_msg"),
+                            style="color: red; font-size: 0.85rem; margin-top: -0.25rem; margin-bottom: 0.5rem;"
+                        )
                      ),
                      ui.div(
                          ui.card(
@@ -142,6 +146,10 @@ app_ui = ui.page_navbar(
                              ui.value_box("Quoted Bid", ui.output_text("quoted_bid_card")),
                              ui.value_box("Quoted Ask", ui.output_text("quoted_ask_card"))
                          ),
+                         ui.div(
+                            ui.output_text("spread_change_note"),
+                            style="background-color: #fff4d6; padding: 1rem; border-left: 6px solid #ffa500; border-radius: 8px; margin-bottom: 1.2rem; font-size: 1.05rem; font-weight: 500; color: #333;"
+                        ),
                          ui.card_header("📉 Current Market Quotes"),
                          ui.layout_columns(
                              ui.value_box("Current Mid Price", ui.output_text("real_mid_card")),
@@ -493,7 +501,7 @@ def server(input: Inputs):
         # Load preprocessed spread feature file
         feature_path = f"dashboard/data/spread_features_{sid}_alltimeid.pkl"
         if not os.path.exists(feature_path):
-            print(f"❌ Feature file not found: {feature_path}")
+            print(f" Feature file not found: {feature_path}")
             return {
                 "pred_mid": np.nan, "pred_spread": np.nan,
                 "bid": np.nan, "ask": np.nan,
@@ -504,11 +512,12 @@ def server(input: Inputs):
         df = df[df["time_id"] == tid].copy()
 
         if df.empty:
-            print(f"⚠️ No data for stock {sid}, time_id {tid}")
+            print(f" No data for stock {sid}, time_id {tid}")
             return {
                 "pred_mid": np.nan, "pred_spread": np.nan,
                 "bid": np.nan, "ask": np.nan,
-                "real_mid": None, "real_spread": None
+                "real_mid": None, "real_spread": None,
+                "error": f"No data for stock {sid}, time ID {tid}. Please try another time ID."
             }
 
         # Pick one row and its next row
@@ -585,6 +594,22 @@ def server(input: Inputs):
         if q['real_mid'] is None or q['real_spread'] is None:
             return "N/A"
         return f"{q['real_mid'] + q['real_spread'] / 2:.6f}"
+
+    @render.text
+    def spread_change_note():
+        q = quote_prediction()
+        if q['real_spread'] is None or np.isnan(q['real_spread']):
+            return "📉 Spread trend info unavailable."
+        change = q['pred_spread'] - q['real_spread']
+        emoji = "⬆️" if change > 0 else "⬇️" if change < 0 else "➡️"
+        direction = "increase" if change > 0 else "decrease" if change < 0 else "stay the same"
+        return f"{emoji} Bid-ask spread is expected to <{direction}> in the next window (t+1)."
+    
+    @render.text
+    def quote_error_msg():
+        q = quote_prediction()
+        return q["error"] if "error" in q else ""
+
 
 # --- Create App ---
 app = App(app_ui, server)
