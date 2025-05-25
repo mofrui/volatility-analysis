@@ -603,7 +603,7 @@ def server(input: Inputs):
         change = q['pred_spread'] - q['real_spread']
         emoji = "⬆️" if change > 0 else "⬇️" if change < 0 else "➡️"
         direction = "increase" if change > 0 else "decrease" if change < 0 else "stay the same"
-        return f"{emoji} Bid-ask spread is expected to <{direction}> in the next window (t+1)."
+        return f"{emoji} Bid-ask spread is expected to <{direction}> in the next time id (t+1)."
     
     @render.text
     def quote_error_msg():
