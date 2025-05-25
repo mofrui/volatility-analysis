@@ -8,6 +8,7 @@ import pickle
 import time
 import os
 import numpy as np
+import joblib
 
 
 # --- UI: Sidebar & Panels ---
@@ -101,7 +102,7 @@ app_ui = ui.page_navbar(
                                 selected="RMSE",
                                 inline=True
                             ),  
-                                ui.markdown("This box plot shows overall performance (e.g., RMSE, QLIKE) across multiple `time_id`s for each stock."),
+                                ui.markdown("This boxplot shows the overall performance across the `time_id`s on the dashboard(14, 46, 246) for each stock"),
                                 ui.output_plot("metric_box_plot")
                             )
                         )
@@ -121,15 +122,44 @@ app_ui = ui.page_navbar(
     ),
     ui.nav_panel(
     "📊 Quoting Strategies",
-    ui.layout_sidebar(
-        ui.sidebar(  # <- REQUIRED: this is the actual sidebar (even if empty or minimal)
-            ui.markdown("Use the predicted volatility below to guide quoting decisions.")
-        ),
-        ui.card(  # <- main content area
-            ui.card_header("Volatility-Informed Quoting Strategy"),
-            ui.output_plot("display_prediction")
-        )
-    ),
+     ui.layout_sidebar(
+                     ui.sidebar(
+                         ui.input_select("spread_stock_id", "Choose a Stock ID:", {
+                             50200: "50200: SPY XNAS",
+                             104919: "104919: QQQ XNAS"
+                         }, selected=50200),
+                         ui.input_numeric("spread_time_id", "Enter Time ID:", value=14, min=0),
+                        ui.div(
+                            ui.output_text("quote_error_msg"),
+                            style="color: red; font-size: 0.85rem; margin-top: -0.25rem; margin-bottom: 0.5rem;"
+                        )
+                     ),
+                     ui.div(
+                         ui.card(
+                             ui.card_header("Actual vs Predicted Bid-Ask Spread"),
+                             ui.output_plot("bid_ask_forecast_plot")
+                         ),
+                         ui.card_header("📈 Predicted Quotes"),
+                         ui.layout_columns(
+                             ui.value_box("Mid Price (t+1)", ui.output_text("pred_mid_card")),
+                             ui.value_box("Spread (t+1)", ui.output_text("pred_spread_card")),
+                             ui.value_box("Quoted Bid", ui.output_text("quoted_bid_card")),
+                             ui.value_box("Quoted Ask", ui.output_text("quoted_ask_card"))
+                         ),
+                         ui.div(
+                            ui.output_text("spread_change_note"),
+                            style="background-color: #fff4d6; padding: 1rem; border-left: 6px solid #ffa500; border-radius: 8px; margin-bottom: 1.2rem; font-size: 1.05rem; font-weight: 500; color: #333;"
+                        ),
+                         ui.card_header("📉 Current Market Quotes"),
+                         ui.layout_columns(
+                             ui.value_box("Current Mid Price", ui.output_text("real_mid_card")),
+                             ui.value_box("Current Spread", ui.output_text("real_spread_card")),
+                             ui.value_box("Current Bid", ui.output_text("real_bid_card")),
+                             ui.value_box("Current Ask", ui.output_text("real_ask_card"))
+                         )
+
+                     )
+                 )
 ),
 
 
@@ -370,6 +400,215 @@ def server(input: Inputs):
         ax = sns.boxplot(data=selected_df, x="Label", y="Value", palette=palette)
         ax.set_title(f"{metric_name} Across Stocks (Lower = Better)" if "QLIKE" in metric_name or "RMSE" in metric_name else f"{metric_name} Across Stocks")
         return ax.figure
+
+    @render.plot
+    def bid_ask_forecast_plot():
+        from spread_model import load_spread_model, load_precomputed_features
+        import matplotlib.pyplot as plt
+        from sklearn.preprocessing import StandardScaler
+        import ast
+
+        sid = int(input.spread_stock_id())
+        model = load_spread_model()
+
+        # Map stock_id to corresponding CSV file
+        stock_to_file = {
+            50200: "dashboard/data/predictions_spy.csv",
+            104919: "dashboard/data/predictions_qqq.csv"
+        }
+
+        pred_path = stock_to_file.get(sid)
+        pred_df = load_precomputed_features(pred_path)
+
+        # ✅ Load preprocessed snapshot features instead of recomputing
+        spread_feature_path = f"dashboard/data/spread_features_{sid}_alltimeid.pkl"
+        agg_df = pd.read_pickle(spread_feature_path)
+
+        # --- Clean and merge ---
+        pred_df["predicted_volatility_lead1"] = pred_df["predicted_value"].apply(
+            lambda x: ast.literal_eval(x)[0] if pd.notna(x) else np.nan
+        )
+        pred_df["time_id"] = pred_df["time_id"].astype(int)
+        pred_df["bucket_id_330s"] = pred_df["bucket_id_330s"].astype(int)
+        agg_df["time_id"] = agg_df["time_id"].astype(int)
+        agg_df["bucket_id_330s"] = agg_df["bucket_id_330s"].astype(int)
+
+        merged_df = pd.merge(pred_df, agg_df, on=["time_id", "bucket_id_330s"], how="inner")
+
+        # Drop rows with missing columns
+        merged_df = merged_df.dropna(subset=[
+            "predicted_volatility_lead1", "spread_pct", "realized_volatility",
+            "wap", "imbalance", "depth_ratio", "log_return",
+            "bid_ask_spread", "bid_ask_spread_lead1"
+        ])
+
+        # Scale features
+        scaler = StandardScaler()
+        scaled = scaler.fit_transform(merged_df[["spread_pct", "realized_volatility"]])
+        merged_df["spread_pct_scaled"] = scaled[:, 0]
+        merged_df["realized_volatility_scaled"] = scaled[:, 1]
+
+        # Final input to model
+        feature_cols = [
+            "predicted_volatility_lead1", "spread_pct_scaled", "realized_volatility_scaled",
+            "wap", "imbalance", "depth_ratio", "log_return", "bid_ask_spread"
+        ]
+        merged_df[feature_cols] = merged_df[feature_cols].apply(pd.to_numeric, errors="coerce")
+        merged_df = merged_df.dropna(subset=feature_cols + ["bid_ask_spread_lead1"])
+
+        # Predict
+        y_true = merged_df["bid_ask_spread_lead1"].values
+        y_pred = model.predict(merged_df[feature_cols])
+
+        merged_df["label"] = merged_df["time_id"].astype(str) + "_" + merged_df["bucket_id_330s"].astype(str)
+
+        # Plot
+        fig, ax = plt.subplots(figsize=(18, 6))
+        ax.plot(merged_df["label"], y_true, label="Actual", color="blue", linewidth=1, alpha=0.8)
+        ax.plot(merged_df["label"], y_pred, label="Predicted", color="orange", linestyle="--", linewidth=1, alpha=0.8)
+
+        ax.set_title("Actual vs. Predicted Bid-Ask Spread", fontsize=14)
+        ax.set_xlabel("Time Window (time_id_bucket)", fontsize=12)
+        ax.set_ylabel("Bid-Ask Spread", fontsize=12)
+
+        tick_step = len(merged_df["label"]) // 20
+        ax.set_xticks(merged_df["label"][::tick_step])
+        ax.tick_params(axis='x', rotation=45)
+
+        ax.set_facecolor("white")
+        fig.patch.set_facecolor("white")
+        ax.grid(True, linestyle="--", alpha=0.3)
+        ax.legend()
+
+        plt.tight_layout()
+        return fig
+
+        import joblib
+
+    # Load models once
+    mid_model = joblib.load("dashboard/Models/mid_price_model.pkl")
+    spread_model = joblib.load("dashboard/Models/bid_ask_spread_model.pkl")
+
+   
+    @reactive.calc()
+    def quote_prediction():
+        import pandas as pd
+        from sklearn.preprocessing import StandardScaler
+
+        sid = int(input.spread_stock_id())
+        tid = int(input.spread_time_id())
+
+        # Load preprocessed spread feature file
+        feature_path = f"dashboard/data/spread_features_{sid}_alltimeid.pkl"
+        if not os.path.exists(feature_path):
+            print(f" Feature file not found: {feature_path}")
+            return {
+                "pred_mid": np.nan, "pred_spread": np.nan,
+                "bid": np.nan, "ask": np.nan,
+                "real_mid": None, "real_spread": None
+            }
+
+        df = pd.read_pickle(feature_path)
+        df = df[df["time_id"] == tid].copy()
+
+        if df.empty:
+            print(f" No data for stock {sid}, time_id {tid}")
+            return {
+                "pred_mid": np.nan, "pred_spread": np.nan,
+                "bid": np.nan, "ask": np.nan,
+                "real_mid": None, "real_spread": None,
+                "error": f"No data for stock {sid}, time ID {tid}. Please try another time ID."
+            }
+
+        # Pick one row and its next row
+        row = df.iloc[0:1].copy()
+        next_row = df.iloc[1] if len(df) > 1 else None
+
+        row["predicted_volatility_lead1"] = row["realized_volatility"]
+
+        # Scale 3 features
+        scaler = StandardScaler()
+        row[["spread_pct_scaled", "realized_volatility_scaled", "predicted_volatility_lead1"]] = scaler.fit_transform(
+            row[["spread_pct", "realized_volatility", "predicted_volatility_lead1"]]
+        )
+
+        mid_features = ['spread_pct', 'imbalance', 'depth_ratio', 'bid_ask_spread', 'realized_volatility']
+        spread_features = ['predicted_volatility_lead1', 'spread_pct_scaled', 'realized_volatility_scaled',
+                        'wap', 'imbalance', 'depth_ratio', 'log_return', 'bid_ask_spread']
+
+        pred_mid = mid_model.predict(row[mid_features])[0]
+        pred_spread = spread_model.predict(row[spread_features])[0]
+        bid = pred_mid - pred_spread / 2
+        ask = pred_mid + pred_spread / 2
+
+        return {
+            "pred_mid": pred_mid,
+            "pred_spread": pred_spread,
+            "bid": bid,
+            "ask": ask,
+            "real_mid": next_row["mid_price"] if next_row is not None else None,
+            "real_spread": next_row["bid_ask_spread"] if next_row is not None else None
+        }
+
+
+    @render.text
+    def pred_mid_card():
+        q = quote_prediction()
+        return f"{q['pred_mid']:.6f}"
+
+    @render.text
+    def pred_spread_card():
+        q = quote_prediction()
+        return f"{q['pred_spread']:.6f}"
+
+    @render.text
+    def quoted_bid_card():
+        q = quote_prediction()
+        return f"{q['bid']:.6f}"
+
+    @render.text
+    def quoted_ask_card():
+        q = quote_prediction()
+        return f"{q['ask']:.6f}"
+
+    @render.text
+    def real_mid_card():
+        q = quote_prediction()
+        return f"{q['real_mid']:.6f}" if q['real_mid'] is not None else "N/A"
+
+    @render.text
+    def real_spread_card():
+        q = quote_prediction()
+        return f"{q['real_spread']:.6f}" if q['real_spread'] is not None else "N/A"
+
+    @render.text
+    def real_bid_card():
+        q = quote_prediction()
+        if q['real_mid'] is None or q['real_spread'] is None:
+            return "N/A"
+        return f"{q['real_mid'] - q['real_spread'] / 2:.6f}"
+
+    @render.text
+    def real_ask_card():
+        q = quote_prediction()
+        if q['real_mid'] is None or q['real_spread'] is None:
+            return "N/A"
+        return f"{q['real_mid'] + q['real_spread'] / 2:.6f}"
+
+    @render.text
+    def spread_change_note():
+        q = quote_prediction()
+        if q['real_spread'] is None or np.isnan(q['real_spread']):
+            return "📉 Spread trend info unavailable."
+        change = q['pred_spread'] - q['real_spread']
+        emoji = "⬆️" if change > 0 else "⬇️" if change < 0 else "➡️"
+        direction = "increase" if change > 0 else "decrease" if change < 0 else "stay the same"
+        return f"{emoji} Bid-ask spread is expected to <{direction}> in the next window (t+1)."
+    
+    @render.text
+    def quote_error_msg():
+        q = quote_prediction()
+        return q["error"] if "error" in q else ""
 
 
 # --- Create App ---
