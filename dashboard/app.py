@@ -128,7 +128,7 @@ app_ui = ui.page_navbar(
                              50200: "50200: SPY XNAS",
                              104919: "104919: QQQ XNAS"
                          }, selected=50200),
-                         ui.input_numeric("spread_time_id", "Enter Time ID:", value=14, min=0),
+                         ui.input_numeric("spread_time_id", "Enter Time ID:", value=50, min=0),
                         ui.div(
                             ui.output_text("quote_error_msg"),
                             style="color: red; font-size: 0.85rem; margin-top: -0.25rem; margin-bottom: 0.5rem;"
