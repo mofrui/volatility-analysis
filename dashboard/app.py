@@ -128,7 +128,7 @@ app_ui = ui.page_navbar(
                              50200: "50200: SPY XNAS",
                              104919: "104919: QQQ XNAS"
                          }, selected=50200),
-                         ui.input_numeric("spread_time_id", "Enter Time ID:", value=14, min=0),
+                         ui.input_numeric("spread_time_id", "Enter Time ID:", value=50, min=0),
                         ui.div(
                             ui.output_text("quote_error_msg"),
                             style="color: red; font-size: 0.85rem; margin-top: -0.25rem; margin-bottom: 0.5rem;"
@@ -603,7 +603,7 @@ def server(input: Inputs):
         change = q['pred_spread'] - q['real_spread']
         emoji = "⬆️" if change > 0 else "⬇️" if change < 0 else "➡️"
         direction = "increase" if change > 0 else "decrease" if change < 0 else "stay the same"
-        return f"{emoji} Bid-ask spread is expected to <{direction}> in the next window (t+1)."
+        return f"{emoji} Bid-ask spread is expected to <{direction}> in the next time id (t+1)."
     
     @render.text
     def quote_error_msg():
