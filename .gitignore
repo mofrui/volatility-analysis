@@ -6,3 +6,4 @@ data
 data/
 *.csv
 *.parquet
+.jupyter_cache

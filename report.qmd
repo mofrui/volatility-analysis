@@ -2,16 +2,315 @@
 title: "Precision Volatility Forecasting for Strategic Quote Placement in High-Frequency Trading"
 subtitle: "DATA3888 Data Science Capstone Project"
 author: "Optiver Stream, Group 22"
+date: "`r Sys.Date()`"
 format:
   html:
+    code-tools: true
     code-fold: true
+    fig_caption: yes
     embed-resources: true
+    theme: flatly
+    css: 
+      - https://use.fontawesome.com/releases/v5.0.6/css/all.css
+    toc: true
+    toc_depth: 4
+    toc_float: true
     grid:
       margin-width: 350px
   pdf: default
+execute:
+  cache: true
+  cache-path: _cache
+  cache-depth: 2
 reference-location: margin
 citation-location: margin
 
 jupyter: python3
 ---
 
+```{python, warning=FALSE, echo=FALSE}
+#| execute: true
+#| cache: true
+#| cache-depth: 0
+import os
+import pandas as pd
+import numpy as np
+import importlib
+from pathlib import Path
+
+import src.util as util
+import src.rv as rv
+import src.lstm as lstm
+import src.pipeline2 as p2
+
+_ = importlib.reload(util)
+_ = importlib.reload(rv)
+_ = importlib.reload(lstm)
+_ = importlib.reload(p2)
+
+
+BUILD_MODEL = False
+RUN_EVALUATION = False
+
+os.makedirs('temp/insample', exist_ok=True)
+os.makedirs('temp/outsample', exist_ok=True)
+os.makedirs('temp/pipeline2', exist_ok=True)
+
+os.makedirs('models/lstm', exist_ok=True)
+
+```
+
+# Executive Summary
+
+Market makers profit off the bid-ask spread, the discrepancy between the highest price a buyer is willing to pay and the lowest price a seller is willing to accept.
+Volatility is a measure of price fluctuations in financial markets.
+Volatility influences the movements of prices, thus introducing both risk and opportunity to market makers.
+An understanding of future volatility can assist in using suitable pricing strategies.
+Low volatility indicates stable price movements, thus quoting a tighter spread is suitable, profits are made off high volumes of trades.
+Whereas with high volatility, the additional risk posed by potential price swings allows for wider spreads to be quoted, thus greater profit margins on each trade.
+If market makers have an idea of how prices will behave, they can adjust their pricing strategies accordingly.
+This is the motivation behind our study.
+Furthermore, the effects of inter-stock correlation on model performance is investigated, in training the final model on one stock and testing on both a highly correlated and uncorrelated stock to understand the persisting relationships.
+The aim being to see if information about one stock can be used to improve and or make predictions about another. 
+
+# Background
+
+## Problem Context
+
+In financial markets, volatility reflects how much prices fluctuate over time.
+High volatility leads to larger price swings and wider bid-ask spreads, while low volatility suggests market stability.
+For trading firms like Optiver, accurately forecasting volatility is crucial for setting competitive quotes and managing risk, especially in options and high-frequency trading environments. (Optiver, 2021)
+
+## Dataset Overview
+
+This project uses the Optiver Additional Dataset, which provides sequential ultra-high-frequency limit order book (LOB) snapshots for multiple stocks, structured into hourly trading windows.
+
+Specifically:
+
+- `order_book_feature.parquet`, containing 17.6 million rows from the first 30 minutes of each trading hour
+- `order_book_target.parquet`, containing 17.9 million rows from the last 30 minutes
+
+Each row contains 11 columns and is indexed by `stock_id`, `time_id`, and `seconds_in_bucket` (ranging from 0 to 3599), which together define a specific stock-hour snapshot.
+
+## Data Preprocessing
+
+```{python, warning=FALSE, echo=FALSE}
+#| execute: true
+#| cache: true
+#| cache-depth: 0
+DATA_FOLDER        = "data"
+FEATURE_FILE       = "order_book_feature.parquet"
+TARGET_FILE        = "order_book_target.parquet"
+
+# Primary stock ID for model training
+MODEL_STOCK_ID     = 50200
+# Number of time_ids to use for training
+MODEL_TIMEID_COUNT = 50
+
+# Other stocks for cross-stock performance comparison
+CROSS_STOCK_IDS    = [22753, 104919]
+# Number of time_ids per stock for comparison
+CROSS_TIMEID_COUNT = 10
+
+feature_path = os.path.join(DATA_FOLDER, FEATURE_FILE)
+target_path  = os.path.join(DATA_FOLDER, TARGET_FILE)
+
+df_features = pd.read_parquet(feature_path, engine="pyarrow")
+df_target   = pd.read_parquet(target_path,  engine="pyarrow")
+
+# Concatenate feature and target, then sort
+df_all = (
+    pd.concat([df_features, df_target], axis=0)
+      .sort_values(by=["stock_id", "time_id", "seconds_in_bucket"])
+      .reset_index(drop=True)
+)
+
+# Prepare main-stock training dataset
+df_main_raw = df_all[df_all["stock_id"] == MODEL_STOCK_ID].copy()
+main_time_ids = df_main_raw["time_id"].unique()[:MODEL_TIMEID_COUNT]
+
+# df_main_train: training feature set for the primary stock (50 time_ids)
+df_main_train = (
+    df_main_raw[df_main_raw["time_id"].isin(main_time_ids)]
+      .pipe(util.create_snapshot_features)
+      .reset_index(drop=True)
+)
+
+unique_time_ids = df_main_raw["time_id"].unique()
+test_time_ids   = unique_time_ids[MODEL_TIMEID_COUNT : MODEL_TIMEID_COUNT + 10]
+
+# df_main_test: test feature set for the primary stock (next 10 time_ids)
+df_main_test = (
+    df_main_raw[df_main_raw["time_id"].isin(test_time_ids)]
+      .pipe(util.create_snapshot_features)
+      .reset_index(drop=True)
+)
+
+# Prepare cross-stock comparison datasets
+df_cross_features = {}
+for stock_id in CROSS_STOCK_IDS:
+    df_stock_raw = df_all[df_all["stock_id"] == stock_id].copy()
+    time_ids_cross = df_stock_raw["time_id"].unique()[:CROSS_TIMEID_COUNT]
+    df_stock_feat = (
+        df_stock_raw[df_stock_raw["time_id"].isin(time_ids_cross)]
+          .pipe(util.create_snapshot_features)
+          .reset_index(drop=True)
+    )
+    # df_cross_features: dict of feature sets for each comparison stock (10 time_ids)
+    df_cross_features[stock_id] = df_stock_feat
+```
+
+The feature and target datasets were concatenated and sorted by `stock_id`, `time_id`, and `seconds_in_bucket` to reconstruct full 1-hour trading periods, as they represent the first and last 30 minutes of each time ID, respectively.
+For modeling purposes, we focus on a single stock (`stock_id` = 50200).
+
+# Method
+
+## Pipeline 1: Volatility Forecast
+
+```{python, warning=FALSE, echo=FALSE}
+#| execute: true
+#| cache: true
+#| cache-depth: 0
+
+feature_cols = ["wap", "spread_pct", "imbalance", "depth_ratio", "log_return",
+                "log_wap_change", "rolling_std_logret", "spread_zscore", "volume_imbalance"]
+
+if BUILD_MODEL:
+    _, wls_val_df = rv.wls(df_main_train)
+    wls_val_df.to_csv('temp/insample/wls_val_df.csv')
+
+    _, baseline_val_df = lstm.baseline(df_main_train, epochs=50)
+    baseline_val_df.to_csv('temp/insample/baseline_val_df.csv')
+
+    _, moe_val_df = lstm.moe(df_main_train, feature_cols, epochs=50)
+    moe_val_df.to_csv('temp/insample/moe_val_df.csv')
+
+    _, _, moe_staged_val_df = lstm.moe_staged(df_main_train, feature_cols, epochs=50)
+    moe_staged_val_df.to_csv('temp/insample/moe_staged_val_df.csv')
+```
+
+```{python, warning=FALSE, echo=FALSE}
+#| execute: true
+#| cache: true
+#| cache-depth: 0
+
+wls_val_df = pd.read_csv('temp/insample/wls_val_df.csv')
+baseline_val_df = pd.read_csv('temp/insample/baseline_val_df.csv')
+moe_val_df = pd.read_csv('temp/insample/moe_val_df.csv')
+bilstm_val_df = pd.read_csv('temp/insample/moe_staged_val_df.csv')
+
+val_dfs = {
+    'wls_baseline': wls_val_df,
+    'baseline': baseline_val_df,
+    'moe': moe_val_df,
+    'bilstm': bilstm_val_df
+}
+
+util.plot_rmse_robustness(val_dfs)
+```
+
+## Pipeline 2: Quote Placement
+
+```{python, warning=FALSE, echo=FALSE}
+# prepare lstm prediction from pipeline 1
+cache_dir    = Path("temp/pipeline2")
+cache_dir.mkdir(parents=True, exist_ok=True)
+cache_file   = cache_dir / "predictions_spy.csv"
+
+if cache_file.is_file():
+    pred_df = pd.read_csv(cache_file)
+else:
+    basic_features = [
+        "wap", "spread_pct", "imbalance", "depth_ratio",
+        "log_return", "log_wap_change", "rolling_std_logret",
+        "spread_zscore", "volume_imbalance"
+    ]
+    val_df = util.out_of_sample_evaluation(
+        model_path, scaler_path,
+        df_main_train, basic_features
+    )
+    pred_df = val_df.rename(columns={"y_pred": "predicted_volatility_lead1"})
+    pred_df.to_csv(cache_file, index=False)
+
+best_model, eval_metrics = p2.train_bid_ask_spread_model(
+    df_main_train,
+    pred_df,
+    cache_dir="models/pipeline2",
+    model_save_path="models/pipeline2/bid_ask_spread_model.pkl"
+)
+
+result = p2.generate_quote(
+    pred_df,
+    df_main_train,
+    spread_model_path="models/pipeline2/bid_ask_spread_model.pkl",
+    stock_id=50200
+)
+```
+
+# Evaluation
+
+## Out-of-Sample Evaluation
+
+```{python, warning=FALSE, echo=FALSE}
+#| execute: true
+#| cache: true
+#| cache-depth: 0
+
+model_path  = "models/lstm/moe_staged.h5"
+scaler_path = "models/lstm/moe_staged_scalers.pkl"
+feature_cols = ["wap", "spread_pct", "imbalance", "depth_ratio",
+                "log_return", "log_wap_change",
+                "rolling_std_logret", "spread_zscore", "volume_imbalance"]
+
+val_dfs_cross = {}
+cache_dir = 'temp/outsample'
+for stock_id, df_feat in df_cross_features.items():
+    cache_file = f'{cache_dir}/{stock_id}.csv'
+    if RUN_EVALUATION or not os.path.isfile(cache_file):
+        val_df = util.out_of_sample_evaluation(model_path, scaler_path, df_feat, feature_cols)
+        val_df.to_csv(cache_file, index=False)
+    else:
+        val_df = pd.read_csv(cache_file)
+    val_dfs_cross[stock_id] = val_df
+
+in_sample_df = pd.read_csv('temp/insample/moe_staged_val_df.csv')
+
+val_dfs_for_plot = {
+    "In Sample":               in_sample_df,
+    "High Correlation Stock":  val_dfs_cross[104919],
+    "Low Correlation Stock":   val_dfs_cross[22753],
+}
+
+util.plot_rmse_robustness(val_dfs_for_plot)
+```
+
+## Quote Placement Result
+
+```{python, warning=FALSE, echo=FALSE}
+cache_dir      = Path("temp/pipeline2")
+cache_dir.mkdir(parents=True, exist_ok=True)
+cache_file_test = cache_dir / "predictions_spy_test.csv"
+
+if cache_file_test.is_file():
+    val_df_test = pd.read_csv(cache_file_test)
+else:
+    basic_features = [
+        "wap", "spread_pct", "imbalance", "depth_ratio",
+        "log_return", "log_wap_change", "rolling_std_logret",
+        "spread_zscore", "volume_imbalance"
+    ]
+    val_df_test = util.out_of_sample_evaluation(
+        model_path, scaler_path,
+        df_main_test,
+        basic_features
+    )
+    val_df_test = val_df_test.rename(columns={"y_pred": "predicted_volatility_lead1"})
+    val_df_test.to_csv(cache_file_test, index=False)
+
+metrics = p2.evaluate_quote_strategy(
+    val_df_test,
+    df_main_test,
+    spread_model_path="models/pipeline2/bid_ask_spread_model.pkl"
+)
+print(metrics)
+```
