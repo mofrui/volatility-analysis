@@ -30,13 +30,17 @@ bash install.sh
 
 
 ## Running dashboard 
-1. make sure that you are in `dashboard` directory 
+1. **(Skip if already done)** Make sure you have run the setup script from the project root to install all required Python packages:
+```bash
+bash install.sh
+```
+2. make sure that you are in `dashboard` directory 
 ```bash
 cd dashboard
 ```
-2. run the shiny app using 
+3. run the shiny app using 
 ```bash
-shiny run --reload app.py  
+python3 -m shiny run --reload app.py
 ```
 
 ##  File Structure for Running the Dashboard
