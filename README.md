@@ -30,11 +30,35 @@ bash install.sh
 
 
 ## Running dashboard 
-From project root, run the following command
+1. make sure that you are in `dashboard` directory 
 ```bash
-shiny run --reload dashboard/app.py  
+cd dashboard
+```
+2. run the shiny app using 
+```bash
+shiny run --reload app.py  
 ```
 
+##  File Structure for Running the Dashboard
+The following files and folders are included in the dashboard/ directory and are required for the app to run:
+```bash
+dashboard/
+├── app.py                   # Main Shiny app entry point
+├── model.py                # Core model loading and prediction logic
+├── spread_model.py         # For bid-ask spread prediction
+├── data/                   # Preprocessed input files (.pkl)
+│   └── [e.g., 50200_tid14.pkl, 104919_tid246.pkl, ...]
+├── Models/                 # Contains trained spread models
+│   ├── bid_ask_spread_model.pkl
+│   └── mid_price_model.pkl
+├── out/
+│   └── lstm/               # LSTM model and Corresponding scalers
+│       ├── moe_staged_full.h5
+│       └── moe_staged_scalers_full.pkl
+├── predictions/            # Saved prediction outputs
+│   └── [e.g., pred_50200_14.pkl, pred_104919_46.pkl, ...]
+```
+ > Note: If the predictions/ folder is missing, it will be automatically created during app execution.
 
 
 ## Literatures
