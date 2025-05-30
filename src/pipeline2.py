@@ -134,31 +134,6 @@ def generate_quote(
 ) -> dict:
     """
     Generate bid and ask quotes for a given stock using LSTM volatility predictions and XGBoost spread model.
-    
-    Parameters
-    ----------
-    pred_csv : str
-        Path to CSV with LSTM predictions (must have ['time_id','start_time','y_pred']).
-    snapshot_df : pd.DataFrame
-        Original snapshot DataFrame including order book columns:
-        ['stock_id','time_id','seconds_in_bucket','wap','spread_pct',
-         'imbalance','depth_ratio','log_return','bid_price1','ask_price1','bid_ask_spread'].
-    spread_model_path : str
-        Path to the trained XGBoost model (.pkl file).
-    stock_id : int
-        The stock ID to generate quotes for.
-    window_size : int
-        Number of rows per rolling window (default 330).
-    step : int
-        Step size between windows (default 10).
-    random_state : int
-        Seed for reproducible sampling (default 42).
-    
-    Returns
-    -------
-    dict
-        Dictionary with keys: 'pred_mid_price', 'pred_spread', 'bid', 'ask', 
-        and optionally 'actual_mid', 'actual_spread', 'real_bid', 'real_ask' if available.
     """
     # Load predictions
     pred_df.rename(columns={"y_pred": "predicted_volatility_lead1"})
@@ -263,28 +238,7 @@ def evaluate_quote_strategy(
 ) -> dict:
     """
     Evaluate the bid-ask quoting strategy using LSTM volatility predictions
-    and the trained XGBoost spread model. Prints summary metrics and
-    visualizes quote effectiveness.
-    
-    Parameters
-    ----------
-    pred_csv : str
-        Path to CSV with LSTM predictions including ['time_id','start_time','y_pred'].
-    snapshot_df : pd.DataFrame
-        Preprocessed snapshot DataFrame with columns:
-        ['stock_id','time_id','seconds_in_bucket','wap','spread_pct',
-         'imbalance','depth_ratio','log_return','bid_price1','ask_price1','bid_ask_spread'].
-    spread_model_path : str
-        Path to the trained XGBoost model (.pkl).
-    window_size : int, optional
-        Rolling window size in seconds (default=330).
-    step : int, optional
-        Step between windows in seconds (default=10).
-        
-    Returns
-    -------
-    metrics : dict
-        Evaluation metrics: hit_ratio, avg_effectiveness, inside_spread_ratio, sharpe.
+    and the trained XGBoost spread model.
     """
     # Load model and predictions
     model = joblib.load(spread_model_path)
