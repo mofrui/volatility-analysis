@@ -318,13 +318,6 @@ def evaluate_quote_strategy(
         'sharpe_ratio': sharpe
     }
     
-    # Print summary
-    print("Quote Evaluation Metrics:")
-    print(f"1. Hit Ratio:                  {hit_ratio:.2%}")
-    print(f"2. Avg. Quote Effectiveness:  {avg_eff:.6f}")
-    print(f"3. Inside-Spread Ratio:       {inside_ratio:.2%}")
-    print(f"4. Sharpe Ratio:              {sharpe:.4f}")
-    
     # Visualizations
     plt.figure(figsize=(12, 4))
     plt.plot(merged.index, merged['quote_effectiveness'], label='Quote Effectiveness')

@@ -10,28 +10,25 @@ format:
     fig_caption: yes
     embed-resources: true
     theme: flatly
-    css: 
+    css:
       - https://use.fontawesome.com/releases/v5.0.6/css/all.css
     toc: true
     toc_depth: 4
     toc_float: true
-    grid:
-      margin-width: 350px
+    margin-width: 350px
   pdf: default
 execute:
   cache: true
   cache-path: _cache
-  cache-depth: 2
+  cache-depth: 0
 reference-location: margin
 citation-location: margin
 
 jupyter: python3
 ---
 
-```{python, warning=FALSE, echo=FALSE}
-#| execute: true
-#| cache: true
-#| cache-depth: 0
+
+```{python}
 import os
 import pandas as pd
 import numpy as np
@@ -41,10 +38,12 @@ from pathlib import Path
 import src.util as util
 import src.rv as rv
 import src.lstm as lstm
+import src.garch as garch
 import src.pipeline2 as p2
 
 _ = importlib.reload(util)
 _ = importlib.reload(rv)
+_ = importlib.reload(garch)
 _ = importlib.reload(lstm)
 _ = importlib.reload(p2)
 
@@ -62,42 +61,45 @@ os.makedirs('models/lstm', exist_ok=True)
 
 # Executive Summary
 
-Market makers profit off the bid-ask spread, the discrepancy between the highest price a buyer is willing to pay and the lowest price a seller is willing to accept.
-Volatility is a measure of price fluctuations in financial markets.
-Volatility influences the movements of prices, thus introducing both risk and opportunity to market makers.
-An understanding of future volatility can assist in using suitable pricing strategies.
-Low volatility indicates stable price movements, thus quoting a tighter spread is suitable, profits are made off high volumes of trades.
-Whereas with high volatility, the additional risk posed by potential price swings allows for wider spreads to be quoted, thus greater profit margins on each trade.
-If market makers have an idea of how prices will behave, they can adjust their pricing strategies accordingly.
-This is the motivation behind our study.
-Furthermore, the effects of inter-stock correlation on model performance is investigated, in training the final model on one stock and testing on both a highly correlated and uncorrelated stock to understand the persisting relationships.
-The aim being to see if information about one stock can be used to improve and or make predictions about another. 
+# Introduction
 
-# Background
+## Problem Context and Motivations
 
-## Problem Context
+Market makers profit off the bid-ask spread, the discrepancy between the highest price a buyer is willing to pay and the lowest price a seller is willing to accept (O’Hara, 1995).
+Volatility, which measures price fluctuations in financial markets, introduces both risk and opportunity to market makers (Hasbrouck, 2006).
+Low volatility indicates stable price movements, tighter bid–ask spreads, and profits made through high trade volumes.
+In contrast, during high volatility, price fluctuations heighten—creating uncertainty and risk, thus spreads widen to insure against potential losses.
+Bollerslev and Melvin (1994) stated that there is a strong positive relationship between volatility and spreads; increased volatility evidently widens bid–ask spreads, with highly statistically significant coefficients linking conditional variance to spread levels.
 
-In financial markets, volatility reflects how much prices fluctuate over time.
-High volatility leads to larger price swings and wider bid-ask spreads, while low volatility suggests market stability.
-For trading firms like Optiver, accurately forecasting volatility is crucial for setting competitive quotes and managing risk, especially in options and high-frequency trading environments. (Optiver, 2021)
+For trading firms like Optiver, accurately forecasting short-term volatility is crucial for setting competitive quotes and managing execution risk, especially in high-frequency trading (HFT) and options markets (Optiver, 2021).
+Motivated by this, our study focuses on leveraging predicted short-term volatility to optimise quoting strategies based on bid-ask spread.
+This study also considers the effects of inter-stock correlation on model performance by training a model on one stock and testing it on both a highly correlated and uncorrelated stock.
+The aim being to see if information about one stock can be used to improve and or make predictions about another.
 
-## Dataset Overview
+This context leads to the main research question of this study:
 
-This project uses the Optiver Additional Dataset, which provides sequential ultra-high-frequency limit order book (LOB) snapshots for multiple stocks, structured into hourly trading windows.
+> **How can short-term volatility forecasts be leveraged to optimise bid-ask spread quoting strategies—balancing execution risk and market competitiveness—for HFT firms? Additionally, how does inter-stock correlation influence prediction accuracy and quoting effectiveness when models are applied to unseen stocks?**
 
-Specifically:
+## Objectives
 
-- `order_book_feature.parquet`, containing 17.6 million rows from the first 30 minutes of each trading hour
-- `order_book_target.parquet`, containing 17.9 million rows from the last 30 minutes
+This study aims to:
 
-Each row contains 11 columns and is indexed by `stock_id`, `time_id`, and `seconds_in_bucket` (ranging from 0 to 3599), which together define a specific stock-hour snapshot.
+1. Develop short-term volatility forecasting models using high-frequency order book data, focusing on LSTM-based approaches.
+2. Assess the effectiveness of integrating these forecasts into quoting strategies, with the goal of improving bid-ask spread predictions and supporting market-making decisions.
+3. Investigate the generalisability of single-stock models to unseen stocks with varying correlation levels.
 
-## Data Preprocessing
+## Prior Work and Relevance
 
-```{python, warning=FALSE, echo=FALSE}
-#| execute: true
-#| cache: true
-#| cache-depth: 0
+Nelson et al. (2017) demonstrated that Long Short-Term Memory (LSTM) networks can be effectively applied to financial time series forecasting, achieving an average accuracy of 55.9% in predicting short-term stock price movements.
+Recent work by Wang et al. (2019) introduced the attention-enhanced AT-LSTM model, which significantly outperformed both traditional ARIMA and standard LSTM models in forecasting financial time series.
+The attention mechanism dynamically assigns weights to different time steps, helping the model focus on the most relevant historical information for improved prediction accuracy.
+Their results showed that AT-LSTM achieved the lowest Mean Absolute Percentage Error (MAPE) values across multiple indices (including the Russell 2000, DJIA, and Nasdaq), consistently outperforming ARIMA.
+
+These studies highlight the suitability of LSTM-based approaches for high-frequency volatility forecasting in our context.
+
+# Data and Preprocessing
+
+```{python}
 DATA_FOLDER        = "data"
 FEATURE_FILE       = "order_book_feature.parquet"
 TARGET_FILE        = "order_book_target.parquet"
@@ -160,24 +162,66 @@ for stock_id in CROSS_STOCK_IDS:
     df_cross_features[stock_id] = df_stock_feat
 ```
 
-The feature and target datasets were concatenated and sorted by `stock_id`, `time_id`, and `seconds_in_bucket` to reconstruct full 1-hour trading periods, as they represent the first and last 30 minutes of each time ID, respectively.
-For modeling purposes, we focus on a single stock (`stock_id` = 50200).
+This study uses the Optiver Additional Dataset, which contains sequential ultra-high-frequency limit order book (LOB) snapshots for multiple stocks, structured into hourly trading windows.
+Specifically, `order_book_feature.parquet` includes 17.6 million rows from the first 30 minutes of each trading hour, and `order_book_target.parquet` includes 17.9 million rows from the last 30 minutes.
+Each row is indexed by `stock_id`, `time_id`, and `seconds_in_bucket` (0–3599), together defining a specific stock-hour snapshot.
 
-# Method
+The feature and target datasets were concatenated and sorted by `stock_id`, `time_id`, and `seconds_in_bucket` to reconstruct complete 1-hour trading periods.
+For modelling, we focus on a single primary stock (`stock_id` = 50200) for training and testing, and two additional stocks (`stock_id` = 22753 and 104919) for cross-stock generalisation analysis.
 
-## Pipeline 1: Volatility Forecast
+## Feature Engineering
 
-```{python, warning=FALSE, echo=FALSE}
-#| execute: true
-#| cache: true
-#| cache-depth: 0
+Feature engineering was applied to the reconstructed dataset to generate meaningful variables capturing market dynamics.
+For the volatility forecasting pipeline, engineered features include:
 
+- Mid price: average of bid and ask prices
+- Bid-ask spread: difference between the lowest ask price and the highest bid price
+- Weighted average price
+- Spread percentage
+- Order book imbalance
+- Depth ratio
+- Log return and log WAP change
+- Rolling standard deviation of log returns
+- Spread z-score
+- Volume imbalance
+
+For the volatility-informed quoting strategy pipeline, the key input feature is the predicted short-term volatility (`predicted_volatility_lead1`) from the final LSTM model, combined with order book-based features including:
+
+- Weighted average price
+- Standardised spread percentage
+- Imbalance
+- Depth ratio
+- Log return
+- Average bid-ask spread
+
+Detailed feature definitions and formulas are provided in the Appendix A: Feature Definitions.
+
+# Methodology
+
+The overall methodology consists of two main pipelines: the first focuses on forecasting short-term volatility, and the second uses these forecasts to inform quoting strategies.
+**Figure 1** below provides a schematic overview of the workflow, including rolling data preparation, model building and evaluation, and final deployment of quoting strategies.
+
+```{python}
+from IPython.display import Image
+Image(filename='resources/figure1.png')
+```
+
+## Rolling Data Preparation
+
+
+
+## Volatility Forecasting Models
+
+```{python}
 feature_cols = ["wap", "spread_pct", "imbalance", "depth_ratio", "log_return",
                 "log_wap_change", "rolling_std_logret", "spread_zscore", "volume_imbalance"]
 
 if BUILD_MODEL:
     _, wls_val_df = rv.wls(df_main_train)
     wls_val_df.to_csv('temp/insample/wls_val_df.csv')
+
+    garch_val_df = garch.garch(df_main_train)
+    garch_val_df.to_csv('temp/insample/garch_val_df.csv')
 
     _, baseline_val_df = lstm.baseline(df_main_train, epochs=50)
     baseline_val_df.to_csv('temp/insample/baseline_val_df.csv')
@@ -189,29 +233,9 @@ if BUILD_MODEL:
     moe_staged_val_df.to_csv('temp/insample/moe_staged_val_df.csv')
 ```
 
-```{python, warning=FALSE, echo=FALSE}
-#| execute: true
-#| cache: true
-#| cache-depth: 0
+## Volatility-Informed Quoting Strategy Model
 
-wls_val_df = pd.read_csv('temp/insample/wls_val_df.csv')
-baseline_val_df = pd.read_csv('temp/insample/baseline_val_df.csv')
-moe_val_df = pd.read_csv('temp/insample/moe_val_df.csv')
-bilstm_val_df = pd.read_csv('temp/insample/moe_staged_val_df.csv')
-
-val_dfs = {
-    'wls_baseline': wls_val_df,
-    'baseline': baseline_val_df,
-    'moe': moe_val_df,
-    'bilstm': bilstm_val_df
-}
-
-util.plot_rmse_robustness(val_dfs)
-```
-
-## Pipeline 2: Quote Placement
-
-```{python, warning=FALSE, echo=FALSE}
+```{python}
 # prepare lstm prediction from pipeline 1
 cache_dir    = Path("temp/pipeline2")
 cache_dir.mkdir(parents=True, exist_ok=True)
@@ -247,15 +271,124 @@ result = p2.generate_quote(
 )
 ```
 
-# Evaluation
+This quoting strategy model uses the predicted volatility from the Volatility Forecasting model and current order book signals to generate quoting strategies that adapt to market conditions.
+This enhances interpretability and helps market makers adjust bid-ask spreads for high-frequency trading (HFT).
 
-## Out-of-Sample Evaluation
+Key features include the predicted short-term volatility (`predicted_volatility_lead1`) and engineered order book features: `spread_pct_scaled`, `wap`, `imbalance`, `depth_ratio`, `log_return`, and `bid_ask_spread`.
+A rolling window approach with a 330-bucket segment and a 10-bucket stride was used, shifting the bid-ask spread target forward by one step to avoid data leakage.
 
-```{python, warning=FALSE, echo=FALSE}
-#| execute: true
-#| cache: true
-#| cache-depth: 0
+An XGBoost model was implemented to estimate the next-period bid-ask spread.
+XGBoost (Extreme Gradient Boosting) is a form of decision tree-based machine learning, advantageous for its high accuracy, scalability, and built-in regularisation to prevent overfitting.
+While it is not traditionally suited for time series data, the incorporation of rolling windows and lagged features overcomes this limitation (XGBoosting, 2023).
+Z-score normalisation (StandardScaler) was applied to standardise numerical features with high variance.
+A chronological 80/20 train-test split was used to preserve order of the time series, sustaining consistent learning as well as a 5-fold cross validation.
+The model’s hyperparameter selection was administered using a grid search, in which 768 candidates were considered, resulting in parameters which provided the optimal configuration.
 
+To assess performance, the model was compared against a naive baseline (previous spread as prediction), using metrics including MSE, MAE, RMSE, R², absolute error (AE), squared error (SE), and percentage error (PE).
+The mid-price, calculated as the average of the best bid and ask, was used as a simple estimator for the next-period mid-price.
+
+The final quoting prices were generated using:
+$$\text{bid} = \text{mid-price} - \frac{\text{spread}}{2}$$
+$$\text{ask} = \text{mid-price} + \frac{\text{spread}}{2}$$
+
+## Evaluation Metrics
+
+To assess the performance of our two main models—Volatility Forecasting and Volatility-Informed Quoting Strategy Model—we used complementary evaluation metrics tailored to each stage’s goals.
+
+### Volatility Forecasting Model (Pipeline 1)
+
+The primary objective of the volatility forecasting model is to provide accurate short-term volatility predictions that serve as key inputs for the quoting model.
+
+Metrics used include:
+
+- **RMSE (Root Mean Squared Error)**: Measures the average magnitude of prediction errors. It is particularly important as smaller errors directly contribute to more accurate quoting model inputs.
+$$
+\text{RMSE} = \sqrt{ \frac{1}{N} \sum_{i=1}^{N} (y_i - \hat{y}_i)^2 }
+$$
+
+- **QLIKE (Quasi-Likelihood Loss)**: Focuses on the accuracy of volatility forecasts relative to actual variance, which is important for financial volatility modeling.
+$$
+\text{QLIKE} = \frac{1}{N} \sum_{i=1}^{N} \left( \frac{y_i^2}{\hat{y}_i^2} - \log \left( \frac{y_i^2}{\hat{y}_i^2} \right) - 1 \right)
+$$
+
+- **MSE (Mean Squared Error)**: Provides a standard measure of average squared prediction errors.
+$$
+\text{MSE} = \frac{1}{N} \sum_{i=1}^{N} (y_i - \hat{y}_i)^2
+$$
+
+- **Inference Time**: Measures the computational efficiency for each prediction for high-frequency environments.
+
+Among these, RMSE is considered the most critical metric because the quoting model depends on accurate volatility forecasts. Lower RMSE in Pipeline 1 leads to more precise bid-ask spread predictions in P2, directly impacting quoting effectiveness.
+
+### Volatility-Informed Quoting Strategy Model (Pipeline 2)
+
+To evaluate the quoting strategy model’s performance, we employed four microstructure-based metrics:
+
+- **Hit Ratio**: Measures how often our quotes are competitive enough to be executed.
+$$
+\begin{aligned}
+\text{Hit Ratio} &=
+\frac{ \text{Number of competitive quotes} }{ \text{Total number of quotes} } \\\\
+& \text{where bid} \geq \text{market bid and ask} \leq \text{market ask}
+\end{aligned}
+$$
+
+- **Inside-Spread Quote Ratio**: Assesses whether quotes are placed inside the market spread for better execution.
+$$
+\begin{aligned}
+\text{Inside-Spread Quote Ratio} &=
+\frac{ \text{Number of quotes inside market spread} }{ \text{Total number of quotes} } \\\\
+& \text{where bid} > \text{market bid and ask} < \text{market ask}
+\end{aligned}
+$$
+
+- **Average Quote Effectiveness**: Evaluates the average improvement of our quoted prices over the market reference.
+$$
+\begin{aligned}
+\text{Effectiveness} &=
+\frac{1}{N} \sum_{i=1}^{N} \frac{1}{2} \bigl( (\text{Quoted Bid}_i - \text{Market Bid}_i) + (\text{Market Ask}_i - \text{Quoted Ask}_i) \bigr) \\\\
+& \text{where } N \text{ is the total number of quotes}
+\end{aligned}
+$$
+
+- **Sharpe Ratio of Quote Effectiveness**: Measures the consistency and risk-adjusted performance of our quote placements.
+$$
+\text{Sharpe Ratio} = \frac{\mathbb{E}[\text{Quote Effectiveness}]}{\text{Std}[\text{Quote Effectiveness}]}
+$$
+
+These metrics provide a comprehensive evaluation of how effectively the quoting model balances execution competitiveness, market efficiency, and consistency under varying market conditions.
+
+# Result
+
+## Model Performance Comparison
+
+```{python}
+#| fig-cap: "Figure 2. Model Performance Comparison: Boxplot comparison of RMSE values across models, showing that the bidirectional LSTM model achieves a balance of low mean RMSE and small variance, indicating superior predictive accuracy and stability."
+wls_val_df = pd.read_csv('temp/insample/wls_val_df.csv')
+garch_val_df = pd.read_csv('temp/insample/garch_val_df.csv')
+baseline_val_df = pd.read_csv('temp/insample/baseline_val_df.csv')
+moe_val_df = pd.read_csv('temp/insample/moe_val_df.csv')
+bilstm_val_df = pd.read_csv('temp/insample/moe_staged_val_df.csv')
+
+val_dfs = {
+    'wls_baseline': wls_val_df,
+    'garch_baseline': garch_val_df,
+    'lstm_baseline': baseline_val_df,
+    'moe_lstm': moe_val_df,
+    'bidirectional_lstm': bilstm_val_df
+}
+
+util.plot_rmse_robustness(val_dfs)
+```
+
+Based on the RMSE robustness comparison across models, the bidirectional LSTM model was selected as the final volatility forecasting model.
+While other models may show slightly lower mean RMSE or narrower variance, the bidirectional LSTM demonstrates an optimal balance between these two aspects—achieving both consistently low prediction errors and limited variance across different trading periods.
+This balance is crucial for real-world deployment, as it ensures that the volatility forecasts remain accurate without significant fluctuations under varying market conditions.
+Such stability and reliability are essential for providing consistent and actionable insights to support quoting strategies in high-frequency trading environments.
+
+## Cross-Stock Generalisation Analysis
+
+```{python}
 model_path  = "models/lstm/moe_staged.h5"
 scaler_path = "models/lstm/moe_staged_scalers.pkl"
 feature_cols = ["wap", "spread_pct", "imbalance", "depth_ratio",
@@ -284,9 +417,9 @@ val_dfs_for_plot = {
 util.plot_rmse_robustness(val_dfs_for_plot)
 ```
 
-## Quote Placement Result
+## Quoting Strategies (bid-ask spread prediction) Effectiveness
 
-```{python, warning=FALSE, echo=FALSE}
+```{python}
 cache_dir      = Path("temp/pipeline2")
 cache_dir.mkdir(parents=True, exist_ok=True)
 cache_file_test = cache_dir / "predictions_spy_test.csv"
@@ -307,10 +440,111 @@ else:
     val_df_test = val_df_test.rename(columns={"y_pred": "predicted_volatility_lead1"})
     val_df_test.to_csv(cache_file_test, index=False)
 
-metrics = p2.evaluate_quote_strategy(
+p2_metrics = p2.evaluate_quote_strategy(
     val_df_test,
     df_main_test,
     spread_model_path="models/pipeline2/bid_ask_spread_model.pkl"
 )
-print(metrics)
+```
+
+With a hit ratio of 45.98%, the model effectively balances aggressiveness and passivity, managing to get filled roughly half the time.
+This reflects a well-calibrated trade-off between execution probability and pricing precision.
+
+The average quote effectiveness is near zero, and the Sharpe ratio (-0.0992) is close to flat, suggesting no exploitable inefficiencies in quoting placement.
+The model is aligned with market pricing but lacks predictive edge.
+
+The line plot of quote effectiveness over time above reveals a stable, stationary process fluctuating around zero.
+There is no discernible drift or trend in performance, implying that the quoting logic maintains a neutral stance across various market conditions.
+This consistency supports the idea that the model does not degrade over time and can be reliably deployed without frequent recalibration.
+
+# Discussion
+
+## Interpretation of Results
+
+## Practical Relevance and Application
+
+This study provides market makers and quantitative traders with short-term volatility forecasts to optimise bid-ask quoting strategies, balancing execution risk and market competitiveness in high-frequency trading environments.
+Our final LSTM-based model, trained on a bigger dataset, delivers accurate short-term volatility predictions, which are implemented in an interactive dashboard that visualises predicted versus actual volatility, evaluates model performance across different correlation levels, and demonstrates how these forecasts can be used to guide real-world quoting decisions.
+While only a brief overview is provided here, detailed screenshots and illustrations of the dashboard’s functionality are included in the Appendix for further reference.
+The models and insights developed here are intended for market makers, traders, and quantitative strategists who rely on short-term volatility forecasts to refine their quoting strategies and manage risk in dynamic markets.
+
+## Limitations and Challenges
+
+### Volatility Forecasting (Pipeline 1)
+
+- **Smoothing and Lag in Volatility Prediction**: The LSTM model tends to smooth out sharp spikes in volatility, causing delays in capturing sudden market changes. We also attempted an attention-based LSTM architecture, which unfortunately resulted in even smoother and overly averaged predictions. This suggests a potential issue in feature engineering or a mismatch between the model’s loss function and the rapid volatility spikes we wanted to capture.
+- **Unexpected Correlation Results**: Despite strong cross-stock correlations, the single-stock model performed worse on highly correlated stocks than on less correlated ones, indicating it did not generalize well across different market microstructures.
+- **Computational and Time Constraints**: Due to limited computational resources and time, we were unable to train more complex multi-stock models or incorporate a larger number of time IDs, restricting the ability to capture broader market patterns and microstructure signals.
+
+### Quoting Strategy Model (Pipeline 2)
+
+- **Assume Mid-Price Forecasting**: Our quoting approach assumes a static mid-price for the next interval, without explicitly modeling mid-price dynamics.
+- **No Risk or Inventory Constraints**: The model does not incorporate real-world constraints like inventory management or risk appetite, which are critical for practical quoting strategies.
+
+## Recommendation for Future Work
+
+For the volatility forecasting model, future research could incorporate cross-stock features and develop generalised multi-stock models to improve prediction stability and generalisability across different assets.
+Exploring time-aware or attention-based architectures—especially with refined feature engineering or loss functions—may also help better capture rapid market changes and sudden volatility spikes.
+Expanding the temporal coverage by training on a larger set of time IDs would further enhance the model’s ability to capture longer-term patterns and improve robustness.
+
+For the quoting strategy model, testing more adaptive quoting algorithms beyond the current XGBoost implementation may yield further performance improvements.
+Introducing a dedicated mid-price forecasting model (such as an LSTM) could make quoting decisions more dynamic and responsive to market movements.
+Finally, integrating proxy variables for inventory and risk constraints—such as historical order imbalance or trade volume—would improve the practical applicability and real-world relevance of quoting decisions in high-frequency trading environments.
+
+# Conclusion
+
+# Student Contributions
+
+| Name            | Student ID  | Contributions                                                                                                                                                                                                                                                                                      |
+|-----------------|-------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| Daisy Lim       | 520204962   | - Research, literature review  <br> - Initial baseline model: HAV-RV OLS & WLS  <br> - Interactive dashboard (About page, Volatility Prediction tab, integrated Quoting Strategies tab)  <br> - Requirements/installation script  <br> - Final presentation & contributed to slides  <br> - Report: Executive Summary, Background, Discussion (limitations & improvements), Conclusion (future work)  <br> - Contributed to README |
+| Junrui Kang     | 530531740   | - Performed feature engineering  <br> - Built and tuned LSTM model for volatility forecasting  <br> - Integrated WLS, HAR-RV, GARCH models into the workflow  <br> - Developed evaluation pipeline  <br> - Designed presentation slides  <br> - Consolidated and debugged group code into unified, reproducible pipeline in final report |
+| Chenghao Kang   | 540234745   | - Literature review  <br> - Tested and improved XGBoost model for Pipeline 2  <br> - Evaluated Pipeline 1 model and identified the most suitable for Pipeline 2  <br> - Contributed to construction of Pipeline 2  <br> - Final presentation  <br> - Report: Pipeline 2 section and supplemented other sections |
+| Oscar Pham      | 530417214   | - Literature review for Pipeline 2  <br> - Tested LSTM and ARMA-GARCH for Pipeline 1  <br> - Trained and tested models for Pipeline 2  <br> - Developed naive quoting strategy  <br> - Researched evaluation metrics/techniques for quoting strategy  <br> - Final report: Pipeline 2 methods/evaluation/limitations, Discussion/Limitations |
+| Jiayi Li        | 530109516   | - Tested ARMA-GARCH and ARIMA models for Pipeline 1  <br> - Literature review  <br> - Interactive dashboard (reformed using Shiny, Pipeline 2 tab)  <br> - Final presentation  <br> - Final report: interpretation and implications, summary of key findings, significance |
+| Ella Jones      | 520434145   | - Literature review  <br> - Initial XGBoost modelling test  <br> - Evaluation of Pipeline 1 through inter-stock correlation  <br> - Created Figure 1 Schematic Workflow (Presentation and Report)  <br> - Final Presentation: contribution to slides and script  <br> - Final Report: Method Pipeline 1 and thorough editing |
+
+# References
+
+# Appendices
+
+## Appendix A: Feature Definitions
+
+### Intermediate Variables
+
+| Feature         | Definition                                                      | Formula                                               |
+|-----------------|------------------------------------------------------------------|-------------------------------------------------------|
+| Mid price       | Average of best bid and best ask prices                         | $\frac{\text{Bid Price} + \text{Ask Price}}{2}$       |
+| Bid-ask spread  | Difference between the lowest ask price and the highest bid price | $\text{Ask Price} - \text{Bid Price}$                |
+
+### Pipeline 1: Volatility Forecasting
+
+| Feature                                  | Definition                                      | Formula                                                                                                   |
+|------------------------------------------|--------------------------------------------------|-----------------------------------------------------------------------------------------------------------|
+| Weighted average price (WAP)             | Weighted average price of bid and ask            | $\frac{(\text{Bid Price} \times \text{Ask Size}) + (\text{Ask Price} \times \text{Bid Size})}{\text{Bid Size} + \text{Ask Size}}$ |
+| Spread percentage (spread\_pct)          | Spread as a percentage of the mid price          | $\frac{\text{Ask Price} - \text{Bid Price}}{\text{Mid Price}}$                                           |
+| Order book imbalance (imbalance)         | Snapshot-based imbalance between bid and ask     | $\frac{\text{Bid Size} - \text{Ask Size}}{\text{Bid Size} + \text{Ask Size}}$                             |
+| Depth ratio                               | Market depth ratio of bid to ask size            | $\frac{\text{Bid Size}}{\text{Ask Size}}$                                                                 |
+| Log return                                | Log return of WAP between snapshots              | $\log\left(\frac{\text{WAP}_t}{\text{WAP}_{t-1}}\right)$                                                  |
+| Log WAP change (log\_wap\_change)         | Difference in log WAP values                      | $\log(\text{WAP}_t) - \log(\text{WAP}_{t-1})$                                                             |
+| Rolling standard deviation of log returns | Short-term volatility of log returns             | $\text{std}(\log \text{ return }_{t-k} \dots \log \text{ return }_t)$                                     |
+| Spread z-score (spread\_zscore)          | Z-score of spread percentage within a rolling window | $\frac{\text{Spread}_t - \mu_{\text{Spread}}}{\sigma_{\text{Spread}}}$                                   |
+| Volume imbalance                         | Difference between ask and bid sizes             | $\text{Bid Size} - \text{Ask Size}$                                                                       |
+
+### Pipeline 2: Volatility-Informed Quoting Strategies
+
+| Feature                          | Definition                                                 | Formula                                                                                                   |
+|----------------------------------|-------------------------------------------------------------|-----------------------------------------------------------------------------------------------------------|
+| Predicted short-term volatility | Predicted short-term volatility from Pipeline 1 (LSTM output) | From LSTM model; used as a key input                                                                      |
+| Weighted average price (WAP)    | Weighted average price of bid and ask                       | $\frac{(\text{Bid Price} \times \text{Ask Size}) + (\text{Ask Price} \times \text{Bid Size})}{\text{Bid Size} + \text{Ask Size}}$ |
+| Standardised spread percentage  | Z-score scaled spread percentage                            | $\frac{\text{Ask Price} - \text{Bid Price}}{\text{Mid Price}}$, then Z-score scaled                       |
+| Order book imbalance (imbalance)| Snapshot-based imbalance between bid and ask                | $\frac{\text{Bid Size} - \text{Ask Size}}{\text{Bid Size} + \text{Ask Size}}$                             |
+| Depth ratio                     | Market depth ratio of bid to ask size                       | $\frac{\text{Bid Size}}{\text{Ask Size}}$                                                                 |
+| Log return                      | Log return of WAP between snapshots                         | $\log \left( \frac{\text{WAP}_t}{\text{WAP}_{t-1}} \right)$                                               |
+| Average bid-ask spread          | Average raw spread over the current 330s rolling window     | $\text{Ask Price} - \text{Bid Price}$, averaged over the rolling window                                    |
+
+
+
+```{python}
+print(p2_metrics)
 ```
