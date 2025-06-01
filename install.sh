@@ -9,7 +9,7 @@ PY_VERSION=$(python3 --version | cut -d " " -f2)
 if [[ "$PY_VERSION" != 3.11* ]]; then
   echo "[WARNING] Python 3.11 is required. Detected: $PY_VERSION"
   echo ""
-  echo "▶ To proceed, please install Python 3.11 and make sure it is used by 'python3'."
+  echo "▶ To proceed, please install Python 3.11 (e.g., via pyenv or Homebrew) and make sure it is used by 'python3'."
   echo ""
   echo "Recommended (cross-platform): Use pyenv to set up a Python 3.11 environment:"
   echo "   1. Install pyenv: https://github.com/pyenv/pyenv#installation"
