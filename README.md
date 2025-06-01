@@ -41,7 +41,7 @@ The main goals are:
 ├── install.sh      # Installation script for dependencies
 ├── .gitignore      # Git ignore file
 ├── .python-version # Python version configuration (e.g., for pyenv)
-├── README.md       # Project overview and instructions
+└── README.md       # Project overview and instructions
 ```
 
 ## Running dashboard 
@@ -70,8 +70,8 @@ dashboard/
 │   ├── mid_price_model.pkl
 │   ├── final.h5
 │   └── final_scalers.pkl
-├── predictions/            # Saved prediction outputs
-│   └── [e.g., pred_50200_14.pkl, pred_104919_46.pkl, ...]
+└── predictions/            # Saved prediction outputs
+    └── [e.g., pred_50200_14.pkl, pred_104919_46.pkl, ...]
 ```
  > Note: If the `predictions/` folder is missing, it will be automatically created during app execution.
 
@@ -84,7 +84,7 @@ To generate the fully reproducible report (`report.html`):
 quarto render report.qmd
 ```
 
-Please ensure you have the `data\` directory in the root folder with `order_book_feature.parquet`, `order_book_target.parquet`, `stock_id.csv` and `time_id_reference.csv` files, othervise the report will not run correctly.
+Please ensure you have the `data/` directory in the root folder with `order_book_feature.parquet`, `order_book_target.parquet`, `stock_id.csv` and `time_id_reference.csv` files, othervise the report will not run correctly.
 
 The report will re-run all Python code blocks, ensuring that all results and figures are updated.
 
