@@ -2,7 +2,6 @@
 title: "Precision Volatility Forecasting for Strategic Quote Placement in High-Frequency Trading"
 subtitle: "DATA3888 Data Science Capstone Project"
 author: "Optiver Stream, Group 22"
-date: "`r Sys.Date()`"
 format:
   html:
     code-tools: true
