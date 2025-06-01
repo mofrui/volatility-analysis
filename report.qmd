@@ -46,8 +46,8 @@ _ = importlib.reload(lstm)
 _ = importlib.reload(p2)
 
 
-BUILD_MODEL = True
-RUN_EVALUATION = True
+BUILD_MODEL = False
+RUN_EVALUATION = False
 
 os.makedirs('temp/insample', exist_ok=True)
 os.makedirs('temp/outsample', exist_ok=True)
