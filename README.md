@@ -67,8 +67,8 @@ dashboard/
 │   └── [e.g., 50200_tid14.pkl, 104919_tid246.pkl, ...]
 ├── Models/                 # Contains trained models
 │   ├── bid_ask_spread_model.pkl
-│   └── mid_price_model.pkl
-|   ├── final.h5
+│   ├── mid_price_model.pkl
+│   ├── final.h5
 │   └── final_scalers.pkl
 ├── predictions/            # Saved prediction outputs
 │   └── [e.g., pred_50200_14.pkl, pred_104919_46.pkl, ...]
