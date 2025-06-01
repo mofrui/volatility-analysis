@@ -59,6 +59,10 @@ os.makedirs('models/lstm', exist_ok=True)
 
 # Executive Summary
 
+:::{.callout-note}
+This work can be found in this [GitHub repository](https://github.com/mofrui/volatility-analysis).
+:::
+
 This report explores whether short-term volatility forecasts can improve quote placement for high-frequency trading (HFT) firms and how well single-stock models generalise across correlated assets.
 We developed a two-pipeline system: (1) a volatility forecasting model (2) a quoting strategy model using XGBoost informed by predicted volatility and order book features.
 The LSTM model outperformed traditional baselines (WLS, GARCH), reducing RMSE by up to 36% and QLIKE by over 60%, though it underreacted to volatility spikes.
