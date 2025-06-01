@@ -20,8 +20,7 @@ execute:
   cache: true
   cache-path: _cache
   cache-depth: 0
-reference-location: margin
-citation-location: margin
+bibliography: ref.bib
 
 jupyter: python3
 ---
@@ -60,17 +59,24 @@ os.makedirs('models/lstm', exist_ok=True)
 
 # Executive Summary
 
+This report explores whether short-term volatility forecasts can improve quote placement for high-frequency trading (HFT) firms and how well single-stock models generalise across correlated assets.
+We developed a two-pipeline system: (1) a volatility forecasting model (2) a quoting strategy model using XGBoost informed by predicted volatility and order book features.
+The LSTM model outperformed traditional baselines (WLS, GARCH), reducing RMSE by up to 36% and QLIKE by over 60%, though it underreacted to volatility spikes.
+Our XGBoost quoting model achieved a ~46% hit ratio but showed limited pricing advantage, likely due to stable spreads and static mid-price assumptions.
+Surprisingly, the LSTM performed worse on a highly correlated stock than on a low-correlation one, indicating that correlation alone does not ensure transferability.
+Our findings support the value of volatility-informed quoting, but highlight challenges in responsiveness, mid-price modelling, and generalisation.
+Final models are deployed in a dashboard to assist market makers with risk-aware quote placement.
+
 # Background
 
 ## Problem Context and Motivations
 
-Market makers profit off the bid-ask spread, the discrepancy between the highest price a buyer is willing to pay and the lowest price a seller is willing to accept (O’Hara, 1995).
-Volatility, which measures price fluctuations in financial markets, introduces both risk and opportunity to market makers (Hasbrouck, 2006).
+Market makers profit off the bid-ask spread, the discrepancy between the highest price a buyer is willing to pay and the lowest price a seller is willing to accept (@ohara1995).
+Volatility, which measures price fluctuations in financial markets, introduces both risk and opportunity to market makers (@hasbrouck2006).
 Low volatility indicates stable price movements, tighter bid–ask spreads, and profits made through high trade volumes.
-In contrast, during high volatility, price fluctuations heighten—creating uncertainty and risk, thus spreads widen to insure against potential losses.
-Bollerslev and Melvin (1994) stated that there is a strong positive relationship between volatility and spreads; increased volatility evidently widens bid–ask spreads, with highly statistically significant coefficients linking conditional variance to spread levels.
+In contrast, during high volatility, price fluctuations heighten—creating uncertainty and risk, thus spreads widen to insure against potential losses. @bollerslev1994 stated that there is a strong positive relationship between volatility and spreads; increased volatility evidently widens bid–ask spreads, with highly statistically significant coefficients linking conditional variance to spread levels.
 
-For trading firms like Optiver, accurately forecasting short-term volatility is crucial for setting competitive quotes and managing execution risk, especially in high-frequency trading (HFT) and options markets (Optiver, 2021).
+For trading firms like Optiver, accurately forecasting short-term volatility is crucial for setting competitive quotes and managing execution risk, especially in HFT and options markets (@optiver2021).
 Motivated by this, our study focuses on leveraging predicted short-term volatility to optimise quoting strategies based on bid-ask spread.
 This study also considers the effects of inter-stock correlation on model performance by training a model on one stock and testing it on both a highly correlated and uncorrelated stock.
 The aim being to see if information about one stock can be used to improve and or make predictions about another.
@@ -89,8 +95,8 @@ This study aims to:
 
 ## Prior Work and Relevance
 
-Nelson et al. (2017) demonstrated that Long Short-Term Memory (LSTM) networks can be effectively applied to financial time series forecasting, achieving an average accuracy of 55.9% in predicting short-term stock price movements.
-Recent work by Wang et al. (2019) introduced the attention-enhanced AT-LSTM model, which significantly outperformed both traditional ARIMA and standard LSTM models in forecasting financial time series.
+@nelson2017 demonstrated that Long Short-Term Memory (LSTM) networks can be effectively applied to financial time series forecasting, achieving an average accuracy of 55.9% in predicting short-term stock price movements.
+Recent work by @zhang2019 introduced the attention-enhanced AT-LSTM model, which significantly outperformed both traditional ARIMA and standard LSTM models in forecasting financial time series.
 The attention mechanism dynamically assigns weights to different time steps, helping the model focus on the most relevant historical information for improved prediction accuracy.
 Their results showed that AT-LSTM achieved the lowest Mean Absolute Percentage Error (MAPE) values across multiple indices (including the Russell 2000, DJIA, and Nasdaq), consistently outperforming ARIMA.
 
@@ -170,8 +176,7 @@ For modelling, we focus on a single primary stock (`stock_id` = 50200) for train
 
 # Methodology
 
-The overall methodology consists of two main pipelines: the first focuses on forecasting short-term volatility, and the second uses these forecasts to inform quoting strategies.
-**Figure 1** below provides a schematic overview of the workflow, including rolling data preparation, model building and evaluation, and final deployment of quoting strategies.
+Our overall methodology consists of two main pipelines: the first focuses on forecasting short-term volatility, and the second uses these forecasts to inform quoting strategies (see Figure 1).
 
 ```{python}
 #| fig-cap: "Figure 1: Schematic workflow overview."
@@ -179,7 +184,7 @@ from IPython.display import Image
 Image(filename='resources/figure1.png')
 ```
 
-## Feature Engineering
+## Feature Engineering and Data Preparation
 
 Feature engineering was applied to the reconstructed dataset to generate meaningful variables capturing market dynamics.
 For the volatility forecasting pipeline, engineered features include:
@@ -195,28 +200,13 @@ For the volatility forecasting pipeline, engineered features include:
 - Spread z-score
 - Volume imbalance
 
-For the volatility-informed quoting strategy pipeline, the key input feature is the predicted short-term volatility (`predicted_volatility_lead1`) from the final LSTM model, combined with order book-based features including:
-
-- Weighted average price
-- Standardised spread percentage
-- Imbalance
-- Depth ratio
-- Log return
-- Average bid-ask spread
+For the volatility-informed quoting strategy pipeline, the key input feature is the predicted short-term volatility (`predicted_volatility_lead1`) from the final LSTM model, combined with order book-based features.
 
 Detailed feature definitions and formulas are provided in the Appendix A: Feature Definitions.
 
-## Rolling Data Preparation
-
-To capture short-term volatility dynamics, we adopt a rolling window approach in our data preparation.
-This method involves segmenting the high-frequency order book data into overlapping windows, enabling us to create multiple training samples and better capture evolving market microstructure patterns.
-
-We experimented with different rolling window configurations, defined by three key parameters: window size (W), which determines the length of the historical data used for prediction; forecast horizon (H), which specifies how far into the future the prediction is made; and step size (S), which controls how much the window slides forward to create the next observation.
-To evaluate these configurations, we used a baseline Random Forest model and measured performance based on both prediction accuracy (MSE) and stability across different time periods.
-
-Our experiments revealed a U-shaped relationship between window size and prediction error, indicating that excessively large or small windows degrade prediction performance.
-Finally, we found that a configuration of `W=330s`, `H=10s`, and `S=5s` provided the best trade-off between prediction accuracy and sample richness.
-We selected this configuration for all subsequent model development, ensuring consistent and reliable short-term volatility forecasts.
+To capture short-term volatility dynamics, we used a rolling window approach, segmenting the high-frequency order book data into overlapping samples.
+We evaluated different configurations—window size (W), forecast horizon (H), and step size (S)—using a Random Forest baseline to identify the best balance between prediction accuracy (MSE) and sample richness.
+Results showed a U-shaped error curve, with overly large or small windows hurting performance. We selected W=330s, H=10s, and S=5s as the optimal configuration for all model development.
 
 ## Volatility Forecasting Models
 
@@ -249,7 +239,7 @@ Due to computational constraints, we initially selected 50 consecutive `time_ids
 
 We trialled three initial candidates for volatility prediction: HAV-RV (with weighted least squares as a linear baseline), GARCH, and Long Short-Term Memory (LSTM) networks.
 The optimal GARCH hyperparameters (`p=1`, `q=2`) were determined by grid search, minimising RMSE.
-LSTM networks, though less interpretable due to their gated architecture, demonstrated superior capability in capturing long-term dependencies and nonlinear volatility patterns (Srivatsavaya, 2023).
+LSTM networks, though less interpretable due to their gated architecture, demonstrated superior capability in capturing long-term dependencies and nonlinear volatility patterns (@LSTM2023advantages).
 We iteratively tuned the LSTM model’s architecture and hyperparameters to achieve the best trade-off between complexity and performance.
 
 The final volatility forecasting model is a double-layer bidirectional LSTM architecture integrating a Mixture-of-Experts (MoE) approach.
@@ -257,7 +247,6 @@ It consists of two stacked bidirectional LSTM layers (128 hidden units each) and
 The MoE head features two expert outputs—one capturing normal market behaviour and another focused on spikes—combined via a learned spike probability gating mechanism.
 To effectively balance precision and stability during training, we employed a two-stage loss strategy: an initial weighted MSE loss focusing on volatility magnitude, followed by a combined log-cosh and focal BCE loss to refine spike detection and robustness.
 This dual-headed design allows the model to dynamically adapt to different volatility regimes, enhancing both accuracy and interpretability.
-
 
 To prevent data leakage, we ensured that the 80/20 train-test split strictly adhered to non-overlapping `time_ids`.
 Additional safeguards included separate data generators for training and validation, feature normalisation within each rolling window, and clipping outlier values to stabilise predictions.
@@ -311,7 +300,7 @@ A rolling window approach with a 330-bucket segment and a 10-bucket stride was u
 
 An XGBoost model was implemented to estimate the next-period bid-ask spread.
 XGBoost (Extreme Gradient Boosting) is a form of decision tree-based machine learning, advantageous for its high accuracy, scalability, and built-in regularisation to prevent overfitting.
-While it is not traditionally suited for time series data, the incorporation of rolling windows and lagged features overcomes this limitation (XGBoosting, 2023).
+While it is not traditionally suited for time series data, the incorporation of rolling windows and lagged features overcomes this limitation (@xgboosting2023adv).
 Z-score normalisation (StandardScaler) was applied to standardise numerical features with high variance.
 A chronological 80/20 train-test split was used to preserve order of the time series, sustaining consistent learning as well as a 5-fold cross validation.
 The model’s hyperparameter selection was administered using a grid search, in which 768 candidates were considered, resulting in parameters which provided the optimal configuration.
@@ -333,7 +322,8 @@ The primary objective of the volatility forecasting model is to provide accurate
 
 Metrics used include:
 
-- **RMSE (Root Mean Squared Error)**: Measures the average magnitude of prediction errors. It is particularly important as smaller errors directly contribute to more accurate quoting model inputs.
+- **RMSE (Root Mean Squared Error)**: Measures the average magnitude of prediction errors. Smaller errors are critical for providing precise inputs to the quoting model.
+
 $$
 \text{RMSE} = \sqrt{ \frac{1}{N} \sum_{i=1}^{N} (y_i - \hat{y}_i)^2 }
 $$
@@ -350,7 +340,7 @@ $$
 
 - **Inference Time**: Measures the computational efficiency for each prediction for high-frequency environments.
 
-Among these, RMSE is considered the most critical metric because the quoting model depends on accurate volatility forecasts. Lower RMSE in Pipeline 1 leads to more precise bid-ask spread predictions in P2, directly impacting quoting effectiveness.
+Among these, RMSE is considered the most critical metric because the quoting model depends on accurate volatility forecasts. Lower RMSE in Pipeline 1 leads to more precise bid-ask spread predictions in Pipeline 2, directly impacting quoting effectiveness.
 
 ### Volatility-Informed Quoting Strategy Model (Pipeline 2)
 
@@ -395,7 +385,7 @@ These metrics provide a comprehensive evaluation of how effectively the quoting 
 ## Model Performance Comparison
 
 ```{python}
-#| fig-cap: "Figure 2. Model Performance Comparison: Boxplot comparison of RMSE values across models, showing that the bidirectional LSTM model achieves a balance of low mean RMSE and small variance, indicating superior predictive accuracy and stability."
+#| fig-cap: "Figure 2: Boxplot RMSE comparison across models. The bidirectional LSTM achieves the lowest mean RMSE with low variance, indicating strong predictive accuracy and stability."
 wls_val_df = pd.read_csv('temp/insample/wls_val_df.csv')
 garch_val_df = pd.read_csv('temp/insample/garch_val_df.csv')
 baseline_val_df = pd.read_csv('temp/insample/baseline_val_df.csv')
@@ -433,12 +423,12 @@ display(out)
 Our final LSTM model outperforms the baseline models across all key metrics.
 Specifically, it achieves an average RMSE that is ~20% lower than the WLS baseline and ~36% lower than the GARCH baseline.
 Similarly, the LSTM’s MSE is ~52% lower than WLS and ~68% lower than GARCH, while also exhibiting the lowest QLIKE value, indicating more accurate and consistent volatility predictions.
-Although the LSTM model requires longer inference time (0.058s compared to 0.00003s for WLS), this trade-off is justified by its superior predictive performance, supporting its selection as the final volatility forecasting model for our quoting pipeline.
+Although LSTM has a longer inference time (0.058s vs. 0.00003s for WLS), its superior predictive accuracy justifies its use as the final volatility model in our quoting pipeline.
 
 ## Cross-Stock Generalisation Analysis
 
 ```{python}
-#| fig-cap: "Figure 3: RMSE robustness of the final LSTM model when tested on the in-sample stock (50200), a high-correlation stock (104919), and a low-correlation stock (22753)."
+#| fig-cap: "Figure 3: RMSE robustness of LSTM forecasts across stocks with varying correlation levels."
 model_path  = "models/lstm/moe_staged.h5"
 scaler_path = "models/lstm/moe_staged_scalers.pkl"
 feature_cols = ["wap", "spread_pct", "imbalance", "depth_ratio",
@@ -477,7 +467,7 @@ This suggests that despite strong historical co-movement, volatility dynamics fo
 ## Quoting Strategies (bid-ask spread prediction) Effectiveness
 
 ```{python}
-#| fig-cap: "Figure 4: Quote effectiveness over time for the quoting strategy model. This time series captures the average price improvement of our quotes compared to market reference prices."
+#| fig-cap: "Figure 4. Quote effectiveness over time, shows how our quoted prices compare to market reference prices."
 cache_dir      = Path("temp/pipeline2")
 cache_dir.mkdir(parents=True, exist_ok=True)
 cache_file_test = cache_dir / "predictions_spy_test.csv"
@@ -511,7 +501,7 @@ This reflects a well-calibrated trade-off between execution probability and pric
 The average quote effectiveness is near zero, and the Sharpe ratio (-0.0992) is close to flat, suggesting no exploitable inefficiencies in quoting placement.
 The model is aligned with market pricing but lacks predictive edge.
 
-The line plot of quote effectiveness over time above reveals a stable, stationary process fluctuating around zero.
+The line plot of quote effectiveness fluctuates around zero, suggesting stationarity.
 There is no discernible drift or trend in performance, implying that the quoting logic maintains a neutral stance across various market conditions.
 This consistency supports the idea that the model does not degrade over time and can be reliably deployed without frequent recalibration.
 
@@ -521,15 +511,16 @@ This consistency supports the idea that the model does not degrade over time and
 
 ### Volatility Forecasting: Effective but Conservative
 
-Our LSTM  model outperformed traditional models like HAV-RV and GARCH, achieving 20% reduction on RMSE compared to the WLS baseline model, indicating much more precise short-term volatility predictions.
+As shown in the Results section, the LSTM model out performed traditional baseline models.
 This findings aligns with Zhang et al. (2022), who demonstrated that neural networks outperform linear regression and tree-based models in forecasting intra-day realized volatility due to their ability to capture complex latent interactions among variables.
-However, the LSTM still underreacts to sharp volatility spikes—reflecting its tendency to smooth predictions, a known limitation of standard LSTM models. This smoothing effect reduced responsiveness during high-risk windows, which could be critical in HFT settings.
+However, the LSTM still underreacts to sharp volatility spikes—reflecting its tendency to smooth predictions, a known limitation of standard LSTM models.
+This smoothing effect reduced responsiveness during high-risk windows, which could be critical in HFT settings.
 The introduction of the spike gate and fusion layer improved sensitivity, but future work could explore attention-based or transformer variants to better capture sudden changes.
 
 ### Quoting Strategy: Realistic but Limited Predictive Edge
 
-The quote placement model built on XGBoost incorporated predicted volatility and order book features to forecast bid-ask spreads.
-While the hit ratio (~50%) suggests that the model can generate executable quotes about half the time, other metrics like quote effectiveness and Sharpe ratio hovered near zero, indicating a lack of systematic pricing advantage over the naive baseline. This outcome likely reflects the stable, low-volatility nature of the dataset and the use of a static mid-price estimator. Without more variability in the target or dynamic mid-price forecasting, the model’s predictive edge remains constrained.
+The quoting model’s near-50% hit ratio confirms adequate execution performance, yet its lack of consistent pricing advantage suggests that predicted volatility alone may not be sufficient for outperforming market benchmarks.
+This highlights the need to consider more nuanced factors such as dynamic price trends and market microstructure signals — a point further discussed in the Limitations and Future Work section.
 
 ### Cross-Stock Generalisation: Correlation isn't Transferability
 
@@ -577,6 +568,11 @@ However, cross-stock generalisation remains a challenge, as historical correlati
 | Ella Jones      | 520434145   | - Literature review  <br> - Initial XGBoost modelling test  <br> - Evaluation of Pipeline 1 through inter-stock correlation  <br> - Created Figure 1 Schematic Workflow (Presentation and Report)  <br> - Final Presentation: contribution to slides and script  <br> - Final Report: Method Pipeline 1 and thorough editing |
 
 # References
+
+This document includes references for further reading [@zhang2024; @wiese2020; @havrv2024overview].
+
+::: {#refs}
+:::
 
 # Appendices
 
