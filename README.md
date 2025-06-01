@@ -18,7 +18,7 @@ The main goals are:
 
 1. **Navigate to the project root directory:**
     ```bash
-    cd volatility-analysis
+    cd optiver22
     ```
 
 2. **Run the setup script to install all required Python dependencies:**
@@ -50,13 +50,9 @@ The main goals are:
 ```bash
 bash install.sh
 ```
-2. make sure that you are in `dashboard` directory 
+2. run the shiny app using 
 ```bash
-cd dashboard
-```
-3. run the shiny app using 
-```bash
-python3 -m shiny run --reload app.py
+python3 -m shiny run --reload dashboard/app.py
 ```
 
 ##  File Structure for Running the Dashboard
