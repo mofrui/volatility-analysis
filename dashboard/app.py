@@ -173,8 +173,8 @@ app_ui = ui.page_navbar(
 def server(input: Inputs):
     prediction_cache = {}
     # Load model + scalers only once
-    model_path = "out/lstm/moe_staged_full.h5"
-    scaler_path = "out/lstm/moe_staged_scalers_full.pkl"
+    model_path = "dashboard/Models/final.h5"
+    scaler_path = "dashboard/Models/final_scalers.pkl"
 
 
     lstm_model = load_model(model_path)

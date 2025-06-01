@@ -17,7 +17,7 @@ pip install --upgrade pip
 
 # 4. Install all required packages
 echo "Installing dependencies..."
-pip install pandas numpy=1.26.4 pyarrow scikit-learn statsmodels matplotlib \ ipython tensorflow==2.16.2 \
+pip install pandas numpy==1.26.4 pyarrow scikit-learn statsmodels matplotlib \ ipython tensorflow==2.16.2 \
     arch tqdm shiny faicons seaborn xgboost joblib
 
 echo "Environment setup complete."
