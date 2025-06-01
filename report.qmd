@@ -56,19 +56,15 @@ os.makedirs('models/lstm', exist_ok=True)
 
 ```
 
-# Executive Summary
-
 :::{.callout-note}
 This work can be found in this [GitHub repository](https://github.com/mofrui/volatility-analysis).
 :::
 
-This report explores whether short-term volatility forecasts can improve quote placement for high-frequency trading (HFT) firms and how well single-stock models generalise across correlated assets.
-We developed a two-pipeline system: (1) a volatility forecasting model (2) a quoting strategy model using XGBoost informed by predicted volatility and order book features.
-The LSTM model outperformed traditional baselines (WLS, GARCH), reducing RMSE by up to 36% and QLIKE by over 60%, though it underreacted to volatility spikes.
-Our XGBoost quoting model achieved a ~46% hit ratio but showed limited pricing advantage, likely due to stable spreads and static mid-price assumptions.
-Surprisingly, the LSTM performed worse on a highly correlated stock than on a low-correlation one, indicating that correlation alone does not ensure transferability.
-Our findings support the value of volatility-informed quoting, but highlight challenges in responsiveness, mid-price modelling, and generalisation.
-Final models are deployed in a dashboard to assist market makers with risk-aware quote placement.
+# Executive Summary
+
+This report explores whether short-term volatility forecasts can improve quote placement for high-frequency trading (HFT) firms and how well single-stock models generalise across correlated assets. We developed a two-pipeline system: (1) a volatility forecasting model using LSTM, and (2) a quoting strategy model using XGBoost, informed by predicted volatility and order book features.
+The LSTM model outperformed traditional baselines (WLS, GARCH), reducing RMSE by up to 36% and QLIKE by over 60%, though it underreacted to volatility spikes. The quoting model achieved a ~46% hit ratio but offered limited pricing advantage.
+Our findings highlight the potential of volatility-informed quoting, while also revealing challenges in responsiveness, mid-price modelling, and generalisation. Final models are deployed in a dashboard to assist market makers with risk-aware quote placement.
 
 # Background
 
@@ -87,14 +83,6 @@ The aim being to see if information about one stock can be used to improve and o
 This context leads to the main research question of this study:
 
 > **How can short-term volatility forecasts be leveraged to optimise bid-ask spread quoting strategies—balancing execution risk and market competitiveness—for HFT firms? Additionally, how does inter-stock correlation influence prediction accuracy and quoting effectiveness when models are applied to unseen stocks?**
-
-## Objectives
-
-This study aims to:
-
-1. Develop short-term volatility forecasting models using high-frequency order book data, focusing on LSTM-based approaches.
-2. Assess the effectiveness of integrating these forecasts into quoting strategies, with the goal of improving bid-ask spread predictions and supporting market-making decisions.
-3. Investigate the generalisability of single-stock models to unseen stocks with varying correlation levels.
 
 ## Prior Work and Relevance
 
@@ -463,9 +451,10 @@ util.plot_rmse_robustness(val_dfs_for_plot)
 We tested the final LSTM volatility prediction model on three stock settings: in-sample (50200), a highly correlated stock (104919), and a low-correlation stock (22753).
 The correlation was determined by comparing mean log returns of each stock relative to the training stock (50200).
 
-Our results show that while the in-sample RMSE is the lowest—indicating the best fit—the model surprisingly performs worse on the high-correlation stock than the low-correlation stock.
-Specifically, the high-correlation stock has a higher RMSE and narrower variance than the low-correlation stock.
-This suggests that despite strong historical co-movement, volatility dynamics for highly correlated stocks may still differ significantly, limiting the predictive power of a single-stock model.
+The in-sample stock shows the lowest RMSE and the smallest variance, confirming good in-sample performance.
+Surprisingly, the high-correlation stockexhibits higher RMSE than the in-sample case, but lower than the low-correlation stock, suggesting that even with strong historical correlation, prediction accuracy does not fully transfer.
+The low-correlation stock has the highest RMSE and largest variance, highlighting the model’s struggle to generalize across dissimilar assets.
+Overall, this illustrates that while historical price co-movement offers some guidance, it is not a reliable indicator of cross-stock predictive performance in volatility forecasting.
 
 ## Quoting Strategies (bid-ask spread prediction) Effectiveness
 
@@ -525,11 +514,12 @@ The introduction of the spike gate and fusion layer improved sensitivity, but fu
 The quoting model’s near-50% hit ratio confirms adequate execution performance, yet its lack of consistent pricing advantage suggests that predicted volatility alone may not be sufficient for outperforming market benchmarks.
 This highlights the need to consider more nuanced factors such as dynamic price trends and market microstructure signals — a point further discussed in the Limitations and Future Work section.
 
-### Cross-Stock Generalisation: Correlation isn't Transferability
+### Cross-Stock Generalisation: Correlation ≠ Transferability
 
-Our tests on a high-correlation stock and a low-correlation stock revealed that correlation alone does not guarantee predictive transferability.
-Surprisingly, the model performed worse on the highly correlated stock, challenging the assumption that strong co-movement implies good model generalisation.
-This suggests that differences in order book microstructure and liquidity can outweigh price-level similarities.
+Our tests on high-correlation stock and low-correlation stock revealed that correlation alone does not guarantee predictive transferability.
+Although the model performed better on the highly correlated stock, it still showed reduced accuracy compared to the in-sample setting.
+This challenges the assumption that strong co-movement directly translates to robust predictive performance.
+These findings suggest that while price-level similarities offer some guidance, differences in order book microstructure, liquidity, and trading behaviour can still significantly affect volatility prediction
 
 ## Practical Relevance and Application
 
