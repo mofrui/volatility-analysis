@@ -10,14 +10,13 @@ else
   echo "Python version is compatible: $PY_VERSION"
 fi
 
-
-# 3. Upgrade pip
+# Upgrade pip
 echo "Upgrading pip..."
 pip install --upgrade pip
 
-# 4. Install all required packages
+# Install all required packages
 echo "Installing dependencies..."
-pip install pandas numpy==1.26.4 pyarrow scikit-learn statsmodels matplotlib \ ipython tensorflow==2.16.2 \
-    arch tqdm shiny faicons seaborn xgboost joblib
+pip install pandas numpy==1.26.4 pyarrow scikit-learn statsmodels matplotlib \
+  ipython tensorflow==2.16.2 arch tqdm shiny faicons seaborn xgboost joblib absl-py jupyter jupyter-cache
 
 echo "Environment setup complete."
