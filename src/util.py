@@ -225,32 +225,53 @@ def plot_training_loss(history):
     plt.show()
 
 
-def plot_prediction_vs_actual(df: pd.DataFrame, time_id: int, y_true_col: str = "y_true", y_pred_col: str = "y_pred"):
+def plot_prediction_vs_actual_multi(
+    val_dfs_vis: dict,
+    time_id: int,
+    start_time: int = None,
+    end_time: int = None,
+    y_true_col: str = "y_true",
+    y_pred_col: str = "y_pred"
+):
     """
-    Plot predicted vs. actual realized volatility over time for a given time_id.
+    Plot predicted vs. actual realized volatility over time for a given time_id
+    across multiple models.
 
     Parameters:
-        df (pd.DataFrame): DataFrame from LSTM test result, with columns [time_id, start_time, y_true, y_pred]
-        time_id (int): Time ID to filter for plotting
-        y_true_col (str): Column name for true values
-        y_pred_col (str): Column name for predicted values
+        val_dfs_vis (dict): Dictionary with model names as keys and DataFrames as values.
+                            Each DataFrame should have columns [time_id, start_time, y_true, y_pred].
+        time_id (int): Time ID to filter for plotting.
+        start_time (int): Optional lower bound of start_time to zoom in.
+        end_time (int): Optional upper bound of start_time to zoom in.
+        y_true_col (str): Column name for true values.
+        y_pred_col (str): Column name for predicted values.
     """
-    df_plot = df[df["time_id"] == time_id].copy()
-
-    if df_plot.empty:
-        print(f"[Warning] No data found for time_id = {time_id}")
-        return
-
     plt.figure(figsize=(12, 5))
-    plt.plot(df_plot["start_time"], df_plot[y_true_col], label="Actual Volatility", linewidth=2)
-    plt.plot(df_plot["start_time"], df_plot[y_pred_col], label="Predicted Volatility", linewidth=2, linestyle="--")
-    plt.title(f"Prediction vs Actual (time_id = {time_id})")
+
+    for label, df in val_dfs_vis.items():
+        df_plot = df[df["time_id"] == time_id].copy()
+        if start_time is not None:
+            df_plot = df_plot[df_plot["start_time"] >= start_time]
+        if end_time is not None:
+            df_plot = df_plot[df_plot["start_time"] <= end_time]
+
+        if df_plot.empty:
+            continue
+
+        plt.plot(df_plot["start_time"], df_plot[y_pred_col], label=f"{label} (Predicted)", linestyle="--")
+        if label == list(val_dfs_vis.keys())[0]:
+            # Plot actual only once
+            plt.plot(df_plot["start_time"], df_plot[y_true_col], label="Actual Volatility", linewidth=2)
+
+    plt.title(f"Prediction vs Actual for Time ID {time_id} (Zoom: {start_time}~{end_time})")
     plt.xlabel("Seconds in Bucket")
     plt.ylabel("Realized Volatility")
     plt.grid(True)
     plt.legend()
     plt.tight_layout()
     plt.show()
+
+
 
 def plot_rmse_robustness(val_dfs: dict, figsize=(8, 4)):
     records = []
@@ -290,11 +311,47 @@ def plot_rmse_robustness(val_dfs: dict, figsize=(8, 4)):
 
 
     
-    ax.set_title('RMSE Robustness Across Models')
+    ax.set_title('RMSE Robustness for Evaluating Models')
     ax.set_ylabel('RMSE')
     plt.xticks(rotation=20, ha='right')
     plt.tight_layout()
     plt.show()
+
+
+def create_evaluation_metrics_table(val_dfs: dict) -> pd.DataFrame:
+    """
+    Create a summary table of evaluation metrics (RMSE, MSE, QLIKE, Inference Time)
+    across all models (DataFrames in val_dfs).
+
+    Parameters:
+        val_dfs (dict): Dictionary with model names as keys and DataFrames as values.
+
+    Returns:
+        pd.DataFrame: Summary table with mean values per model.
+    """
+    records = []
+    for name, df in val_dfs.items():
+        grouped = df.groupby('time_id').apply(
+            lambda g: pd.Series({
+                'rmse': np.sqrt(np.mean((g['y_pred'] - g['y_true'])**2)),
+                'mse': np.mean((g['y_pred'] - g['y_true'])**2),
+                'qlike': np.mean(
+                    (g['y_true']**2) / (g['y_pred']**2 + 1e-8) -
+                    np.log((g['y_true']**2) / (g['y_pred']**2 + 1e-8)) - 1
+                ),
+                'inference_time': g['inference_time'].mean() if 'inference_time' in g.columns else np.nan
+            })
+        ).reset_index()
+
+        # Take mean of metrics across time_ids for each model
+        mean_metrics = grouped[['rmse', 'mse', 'qlike', 'inference_time']].mean()
+        mean_metrics['model'] = name
+        records.append(mean_metrics)
+
+    # Create final summary DataFrame
+    metrics_table = pd.DataFrame(records).set_index('model')
+    return metrics_table
+
 
 
 def out_of_sample_evaluation(
