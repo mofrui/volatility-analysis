@@ -536,11 +536,9 @@ def moe_staged(
     )(spike_logits)
     spike_pred   = Activation("sigmoid", name="spike")(spike_scaled)
 
-    # —— Expert 分支 —— #
     expert_norm  = Dense(1, name="expert_normal")(fusion)
     expert_spike = Dense(1, name="expert_spike")(fusion)
 
-    # —— 混合输出 —— #
     one_minus_spike = Lambda(
         lambda t: 1 - t,
         output_shape=lambda s: s,
